@@ -58,6 +58,8 @@ class DeploymentResult(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     topology: TopologyJSON | None = None  # current editor state, if any
+    api_key: str | None = None  # Anthropic API key (user-provided)
+    base_url: str | None = None  # Anthropic API base URL (for custom endpoints)
 
 
 class ChatResponse(BaseModel):

@@ -91,9 +91,21 @@ TOOLS = [
 
 
 class AgentOrchestrator:
-    def __init__(self, api_key: str | None = None):
-        self.client = Anthropic(api_key=api_key)
+    def __init__(self):
         self.model = "claude-sonnet-4-6-20250514"
+
+    def _get_client(self, api_key: str | None = None, base_url: str | None = None) -> Anthropic:
+        """Create an Anthropic client with the provided credentials.
+
+        api_key and base_url come from the user's frontend settings.
+        Falls back to ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL env vars.
+        """
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
+        return Anthropic(**kwargs)
 
     def chat(
         self,
@@ -102,6 +114,8 @@ class AgentOrchestrator:
         on_topology: callable = None,
         on_traffic: callable = None,
         on_deploy: callable = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ) -> ChatResponse:
         """Process a user message through the Agent.
 
@@ -111,10 +125,14 @@ class AgentOrchestrator:
             on_topology: Callback receiving TopologyJSON when agent generates one
             on_traffic: Callback receiving traffic list when agent generates one
             on_deploy: Callback receiving (topology, traffic) to trigger deploy
+            api_key: Anthropic API key (user-provided, overrides env var)
+            base_url: Anthropic API base URL (user-provided, overrides env var)
 
         Returns:
             ChatResponse with agent's reply and optional action data
         """
+        client = self._get_client(api_key, base_url)
+
         messages = []
 
         # Build context about current state
@@ -125,7 +143,7 @@ class AgentOrchestrator:
 
         messages.append({"role": "user", "content": context})
 
-        response = self.client.messages.create(
+        response = client.messages.create(
             model=self.model,
             max_tokens=2048,
             system=SYSTEM_PROMPT,
@@ -143,6 +161,7 @@ class AgentOrchestrator:
                 reply += block.text
             elif block.type == "tool_use":
                 tool_result = self._execute_tool(
+                    client,
                     block,
                     topology,
                     on_topology,
@@ -164,6 +183,7 @@ class AgentOrchestrator:
 
     def _execute_tool(
         self,
+        client: Anthropic,
         tool_use,
         current_topology: TopologyJSON | None,
         on_topology: callable | None,
@@ -174,11 +194,11 @@ class AgentOrchestrator:
         inp = tool_use.input
 
         if name == "generate_topology":
-            return self._tool_generate_topology(inp.get("description", ""), on_topology)
+            return self._tool_generate_topology(client, inp.get("description", ""), on_topology)
 
         elif name == "generate_traffic":
             return self._tool_generate_traffic(
-                inp.get("num_nodes", 5), inp.get("scenario", ""), on_traffic
+                client, inp.get("num_nodes", 5), inp.get("scenario", ""), on_traffic
             )
 
         elif name == "deploy_and_analyze":
@@ -189,11 +209,11 @@ class AgentOrchestrator:
             )
 
         elif name == "explain_results":
-            return self._tool_explain_results(inp.get("results_json", "{}"))
+            return self._tool_explain_results(client, inp.get("results_json", "{}"))
 
         return None
 
-    def _tool_generate_topology(self, description: str, on_topology) -> TopologyJSON | None:
+    def _tool_generate_topology(self, client: Anthropic, description: str, on_topology) -> TopologyJSON | None:
         """Use LLM to generate a topology JSON from description."""
         prompt = f"""\
 Generate a network topology as a JSON object based on this description: "{description}"
@@ -219,14 +239,13 @@ Rules:
 - Each connection needs a unique id starting from "conn-1"
 - Include ALL devices from the description"""
 
-        response = self.client.messages.create(
+        response = client.messages.create(
             model=self.model,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
 
         text = response.content[0].text
-        # Extract JSON from response
         json_start = text.find("{")
         json_end = text.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
@@ -238,7 +257,7 @@ Rules:
         return None
 
     def _tool_generate_traffic(
-        self, num_nodes: int, scenario: str, on_traffic
+        self, client: Anthropic, num_nodes: int, scenario: str, on_traffic
     ) -> list[dict]:
         """Generate traffic flows matching a scenario."""
         prompt = f"""\
@@ -257,7 +276,7 @@ Rules:
 - Generate 5-15 realistic flows matching the scenario
 - Include a mix of phi values appropriate for the scenario"""
 
-        response = self.client.messages.create(
+        response = client.messages.create(
             model=self.model,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
@@ -286,7 +305,7 @@ Rules:
             return on_deploy(topology, traffic)
         return None
 
-    def _tool_explain_results(self, results_json_str: str) -> str:
+    def _tool_explain_results(self, client: Anthropic, results_json_str: str) -> str:
         """Use LLM to explain deployment results."""
         prompt = f"""\
 Explain the following network routing optimization results in natural language.
@@ -298,7 +317,7 @@ Results:
 
 Be concise but insightful. Focus on the most interesting routing decisions."""
 
-        response = self.client.messages.create(
+        response = client.messages.create(
             model=self.model,
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],

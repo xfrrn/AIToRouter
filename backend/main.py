@@ -309,4 +309,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
         on_topology=on_topology,
         on_traffic=on_traffic,
         on_deploy=on_deploy,
+        api_key=request.api_key,
+        base_url=request.base_url,
     )

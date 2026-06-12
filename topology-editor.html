@@ -384,6 +384,12 @@
   background: var(--accent); color: #fff; border: none;
   font-size: var(--fs-sm);
 }
+.chat-settings .prop-group label {
+  display: block;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 2px;
+}
 
   </style>
 </head>
@@ -1188,9 +1194,33 @@
     /* ─── chat ──────────────────────────────────────────────────── */
     var chatOpen = false;
 
+    // Load saved settings
+    function loadChatSettings() {
+      try {
+        var saved = JSON.parse(localStorage.getItem('ai-router-chat-settings') || '{}');
+        document.getElementById('chat-api-key').value = saved.api_key || '';
+        document.getElementById('chat-base-url').value = saved.base_url || '';
+      } catch(e) {}
+    }
+
+    function saveChatSettings() {
+      var settings = {
+        api_key: document.getElementById('chat-api-key').value.trim(),
+        base_url: document.getElementById('chat-base-url').value.trim(),
+      };
+      localStorage.setItem('ai-router-chat-settings', JSON.stringify(settings));
+    }
+
     function toggleChat() {
       chatOpen = !chatOpen;
       document.getElementById('chat-panel').classList.toggle('open', chatOpen);
+      if (chatOpen) loadChatSettings();
+    }
+
+    function toggleChatSettings() {
+      var el = document.getElementById('chat-settings');
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      if (el.style.display === 'block') loadChatSettings();
     }
 
     function addChatMessage(role, text) {
@@ -1218,10 +1248,13 @@
       addChatMessage('agent', '处理中...');
       var loadingMsg = document.getElementById('chat-messages').lastChild;
 
+      var apiKey = document.getElementById('chat-api-key').value.trim() || null;
+      var baseUrl = document.getElementById('chat-base-url').value.trim() || null;
+
       fetch(API_BASE + '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, topology: topo })
+        body: JSON.stringify({ message: msg, topology: topo, api_key: apiKey, base_url: baseUrl })
       })
       .then(function(r) { return r.json(); })
       .then(function(resp) {
@@ -1299,7 +1332,22 @@
 <div class="chat-panel" id="chat-panel">
   <div class="chat-header">
     <span>AI 网络助手</span>
-    <button class="tb-btn" onclick="toggleChat()" style="border:none;padding:2px 6px;">&#10005;</button>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <button class="tb-btn" id="chat-settings-btn" onclick="toggleChatSettings()" title="API 设置" style="border:none;padding:2px 6px;">&#9881;</button>
+      <button class="tb-btn" onclick="toggleChat()" style="border:none;padding:2px 6px;">&#10005;</button>
+    </div>
+  </div>
+  <div class="chat-settings" id="chat-settings" style="display:none;">
+    <div style="padding:8px var(--gap);border-bottom:1px solid var(--border);">
+      <div class="prop-group">
+        <label>API Key</label>
+        <input id="chat-api-key" type="password" placeholder="sk-ant-api03-..." onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
+      </div>
+      <div class="prop-group" style="margin-top:6px;">
+        <label>Base URL (可选)</label>
+        <input id="chat-base-url" type="text" placeholder="https://api.anthropic.com" onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
+      </div>
+    </div>
   </div>
   <div class="chat-messages" id="chat-messages">
     <div class="chat-msg agent">你好！我是网络拓扑助手。你可以用自然语言描述你想要的网络，我会帮你生成拓扑、配置流量并分析路由优化结果。
