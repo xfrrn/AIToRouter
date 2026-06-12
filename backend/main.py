@@ -215,70 +215,84 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
 
 @app.post("/api/deploy")
 async def deploy(topology: TopologyJSON) -> DeploymentResult:
-    """Deploy topology to Mininet, run traffic, infer optimal routes."""
-    if not docker_available:
-        raise HTTPException(
-            status_code=503,
-            detail="Docker is not available. Use /api/infer for inference-only mode.",
-        )
-
-    global mn_manager
-    from mininet.manager import MininetManager
-    if mn_manager is None:
-        log.info("[/api/deploy] initializing MininetManager (may pull image)...")
-        mn_manager = MininetManager()
-
+    """Deploy topology to Mininet, run traffic, infer optimal routes.
+    Falls back to inference-only if Docker or Mininet is unavailable.
+    """
     job_id = uuid.uuid4().hex[:12]
     log.info("=" * 50)
     log.info("[/api/deploy] job=%s | devices=%d | connections=%d",
              job_id, len(topology.devices), len(topology.connections))
 
-    jobs[job_id] = DeploymentResult(
-        job_id=job_id, status="running", flows=[], topology_nodes=[], topology_edges=[],
-    )
+    # Convert topology and generate flows (common path)
+    G, id_to_idx = build_nx_graph(topology)
+    N = G.number_of_nodes()
+    flows = generate_flows(N, seed=42)
+    log.info("[/api/deploy] topology: %d nodes, %d edges | %d flows",
+             N, G.number_of_edges(), len(flows))
 
+    # ── Try Mininet path ──
+    used_mininet = False
     container_id = None
     tmpdir = None
 
+    if docker_available:
+        global mn_manager
+        from mininet.manager import MininetManager
+        try:
+            if mn_manager is None:
+                log.info("[/api/deploy] initializing MininetManager (may pull image)...")
+                mn_manager = MininetManager()
+
+            mininet_flows = []
+            for f in flows:
+                mininet_flows.append({
+                    "flow_id": f["flow_id"],
+                    "src": f"h{f['src'] + 1}",
+                    "dst": f"h{f['dst'] + 1}",
+                    "bw_req": f["bw_req"],
+                    "duration": f["duration"],
+                })
+
+            log.info("[/api/deploy] creating Mininet container...")
+            container_id, exec_id, tmpdir = mn_manager.deploy(topology, mininet_flows)
+            log.info("[/api/deploy] container=%s running, waiting...", container_id[:12])
+            time.sleep(5)
+            used_mininet = True
+        except Exception as e:
+            log.warning("[/api/deploy] Mininet failed (%s), falling back to direct inference", e)
+            used_mininet = False
+
+    # ── Run inference ──
     try:
-        G, id_to_idx = build_nx_graph(topology)
-        N = G.number_of_nodes()
-        flows = generate_flows(N, seed=42)
-        log.info("[/api/deploy] topology: %d nodes, %d edges | %d flows",
-                 N, G.number_of_edges(), len(flows))
+        if used_mininet:
+            log.info("[/api/deploy] running inference on live Mininet topology...")
+        else:
+            log.info("[/api/deploy] running direct inference (no Mininet)...")
 
-        mininet_flows = []
-        for f in flows:
-            mininet_flows.append({
-                "flow_id": f["flow_id"],
-                "src": f"h{f['src'] + 1}",
-                "dst": f"h{f['dst'] + 1}",
-                "bw_req": f["bw_req"],
-                "duration": f["duration"],
-            })
-
-        log.info("[/api/deploy] creating Mininet container...")
-        container_id, exec_id, tmpdir = mn_manager.deploy(topology, mininet_flows)
-        log.info("[/api/deploy] container=%s running, waiting for network...", container_id[:12])
-        time.sleep(5)
-
-        log.info("[/api/deploy] running network-rl inference on live topology...")
         flow_results, edge_utils = inference_engine.infer(G, flows)
-        log.info("[/api/deploy] >>> used: Mininet DOCKER + network-rl MODEL <<<")
+        log.info("[/api/deploy] >>> used: %s + network-rl MODEL <<<",
+                 "Mininet DOCKER" if used_mininet else "DIRECT inference")
+    except (FileNotFoundError, ImportError):
+        log.info("[/api/deploy] model not available, using OSPF baseline")
+        flow_results, edge_utils = _run_ospf_baseline(G, flows)
+        log.info("[/api/deploy] >>> used: %s + OSPF BASELINE <<<",
+                 "Mininet DOCKER" if used_mininet else "DIRECT inference")
 
-        result = _build_result(job_id, G, flow_results, edge_utils)
-        log.info("[/api/deploy] done | %d flow results", len(result.flows))
+    result = _build_result(job_id, G, flow_results, edge_utils)
+    log.info("[/api/deploy] done | %d flow results", len(result.flows))
 
-    except Exception as e:
-        log.exception("[/api/deploy] FAILED: %s", e)
-        result = DeploymentResult(job_id=job_id, status="failed", error=str(e))
-
-    finally:
-        if container_id is not None:
-            log.info("[/api/deploy] cleaning up container=%s", container_id[:12])
+    # Cleanup
+    if container_id is not None:
+        log.info("[/api/deploy] cleaning up container=%s", container_id[:12])
+        try:
             mn_manager.stop_and_remove(container_id)
-        if tmpdir is not None:
+        except Exception:
+            pass
+    if tmpdir is not None:
+        try:
             mn_manager.cleanup_tmpdir(tmpdir)
+        except Exception:
+            pass
 
     jobs[job_id] = result
     return result

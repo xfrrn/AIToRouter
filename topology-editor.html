@@ -1090,7 +1090,7 @@
         connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
       };
 
-      fetch(API_BASE + '/api/infer', {
+      fetch(API_BASE + '/api/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(topo)
