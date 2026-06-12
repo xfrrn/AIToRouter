@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -264,133 +263,6 @@
       .toolbar .brand { display: none; }
       .toolbar .sep:first-of-type { display: none; }
     }
-/* ─── result panel ──────────────────────────────────────────── */
-.result-panel {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  height: 200px;
-  background: var(--surface);
-  border-top: 2px solid var(--accent);
-  display: none; flex-direction: column;
-  z-index: 100;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
-}
-.result-panel.open { display: flex; }
-.result-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px var(--gap-md);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.05em;
-}
-.result-header .flow-selector {
-  display: flex; align-items: center; gap: 8px;
-}
-.result-header select {
-  padding: 3px 6px; border: 1px solid var(--border);
-  border-radius: var(--radius); font: inherit; font-size: var(--fs-sm);
-  background: var(--bg); color: var(--fg);
-}
-.result-table-wrap {
-  flex: 1; overflow: auto; padding: 4px var(--gap-md);
-}
-.result-table {
-  width: 100%; border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.result-table th {
-  text-align: left; padding: 6px 8px;
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-  color: var(--muted); letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; background: var(--surface);
-}
-.result-table td {
-  padding: 5px 8px; border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-}
-.result-table tr:hover td { background: var(--accent-soft); }
-.result-table tr.active-row td { background: var(--accent-soft); }
-.path-highlight {
-  stroke: var(--accent); stroke-width: 4;
-  fill: none; pointer-events: none;
-  stroke-linecap: round;
-}
-.path-highlight-bg {
-  stroke: var(--accent); stroke-width: 8;
-  fill: none; pointer-events: none;
-  opacity: 0.15; stroke-linecap: round;
-}
-
-/* ─── chat panel ────────────────────────────────────────────── */
-.chat-toggle {
-  position: fixed; bottom: 20px; right: 20px;
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  background: var(--accent); color: #fff;
-  border: none; font-size: 20px;
-  cursor: pointer; z-index: 200;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  display: grid; place-items: center;
-}
-.chat-panel {
-  position: fixed; bottom: 80px; right: 20px;
-  width: 380px; height: 480px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-  display: none; flex-direction: column;
-  z-index: 200; overflow: hidden;
-}
-.chat-panel.open { display: flex; }
-.chat-header {
-  padding: 12px var(--gap-md);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: var(--fs-sm);
-  font-weight: 600;
-  display: flex; justify-content: space-between; align-items: center;
-}
-.chat-messages {
-  flex: 1; overflow-y: auto; padding: var(--gap-md);
-  display: flex; flex-direction: column; gap: 10px;
-}
-.chat-msg {
-  max-width: 85%; padding: 8px 12px;
-  border-radius: var(--radius);
-  font-size: var(--fs-sm); line-height: 1.5;
-  white-space: pre-wrap;
-}
-.chat-msg.user {
-  align-self: flex-end;
-  background: var(--accent); color: #fff;
-}
-.chat-msg.agent {
-  align-self: flex-start;
-  background: var(--bg); border: 1px solid var(--border);
-}
-.chat-input-wrap {
-  display: flex; padding: var(--gap);
-  border-top: 1px solid var(--border); gap: var(--gap);
-}
-.chat-input-wrap input {
-  flex: 1; padding: 8px 10px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  font: inherit; font-size: var(--fs-sm);
-  background: var(--bg); color: var(--fg);
-}
-.chat-input-wrap button {
-  padding: 8px 14px; border-radius: var(--radius);
-  background: var(--accent); color: #fff; border: none;
-  font-size: var(--fs-sm);
-}
-.chat-settings .prop-group label {
-  display: block;
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-  letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--muted); margin-bottom: 2px;
-}
-
   </style>
 </head>
 <body>
@@ -398,11 +270,11 @@
   <div class="toolbar">
     <span class="brand">TopoBuilder</span>
     <span class="sep"></span>
-    <button class="tb-btn accent" id="btn-select" title="选择模式 (S)">&#8627; 选择</button>
+    <button class="tb-btn" id="btn-select" title="选择模式 (S)">&#8627; 选择</button>
     <button class="tb-btn" id="btn-connect" title="连线模式 (C)">&#8212; 连线</button>
     <span class="sep"></span>
-    <button class="tb-btn" id="btn-undo" disabled title="撤销 (Ctrl+Z)">&#8630;</button>
-    <button class="tb-btn" id="btn-redo" disabled title="重做 (Ctrl+Y)">&#8631;</button>
+    <button class="tb-btn" id="btn-undo" disabled title="撤销">&#8630;</button>
+    <button class="tb-btn" id="btn-redo" disabled title="重做">&#8631;</button>
     <span class="sep"></span>
     <button class="tb-btn danger" id="btn-delete" disabled title="删除选中 (Del)">&#10005; 删除</button>
     <span class="sep"></span>
@@ -411,10 +283,8 @@
     <button class="tb-btn" id="btn-zoom-in" title="放大">+</button>
     <button class="tb-btn" id="btn-fit" title="适应画布">适应</button>
     <span style="flex:1;"></span>
-    <button class="tb-btn accent" id="btn-deploy" title="部署到 Mininet 并运行推理">&#9654; 部署</button>
-    <span class="sep"></span>
     <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
-    <button class="tb-btn" id="btn-import" style="display:none;">导入</button>
+    <button class="tb-btn" id="btn-import" title="导入 JSON" style="display:none;">导入</button>
     <input type="file" id="import-file" accept=".json" style="display:none;" />
   </div>
 
@@ -454,31 +324,6 @@
     <span id="status-pos"></span>
   </div>
 
-  <!-- result panel -->
-  <div class="result-panel" id="result-panel">
-    <div class="result-header">
-      <span>推理结果 · <span id="result-flow-count">0</span> 条流</span>
-      <div class="flow-selector">
-        <label for="flow-select" style="color:var(--muted);">查看流:</label>
-        <select id="flow-select" onchange="highlightFlow(this.value)">
-          <option value="">全部</option>
-        </select>
-        <button class="tb-btn" onclick="closeResults()">&#10005;</button>
-      </div>
-    </div>
-    <div class="result-table-wrap">
-      <table class="result-table">
-        <thead>
-          <tr>
-            <th>流 ID</th><th>src → dst</th><th>bw (Mbps)</th><th>φ</th>
-            <th>模型路径</th><th>跳数</th><th>利用率</th><th>OSPF路径</th>
-          </tr>
-        </thead>
-        <tbody id="result-tbody"></tbody>
-      </table>
-    </div>
-  </div>
-
   <script>
     /* ─── device palette definitions ──────────────────────────────── */
     const DEVICE_TYPES = [
@@ -499,13 +344,13 @@
     const PORT_POSITIONS = ['top','right','bottom','left'];
 
     /* ─── state ───────────────────────────────────────────────────── */
-    let devices = [];
-    let connections = [];
+    let devices = [];        // { id, type, x, y, label, ip }
+    let connections = [];    // { id, from: {devId,port}, to: {devId,port} }
     let nextId = 1;
     let selectedId = null;
     let selectedLineId = null;
-    let mode = 'select';
-    let connectFrom = null;
+    let mode = 'select';     // 'select' | 'connect'
+    let connectFrom = null;  // { devId, port }
     let zoom = 1;
     let panX = 0, panY = 0;
     let dragTarget = null;
@@ -517,6 +362,7 @@
     const svg = document.getElementById('topo-svg');
     const canvasWrap = document.getElementById('canvas-wrap');
 
+    /* ─── resolve CSS custom properties for SVG ────────────────────── */
     function cssVar(name) {
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     }
@@ -534,8 +380,8 @@
         const el = document.createElement('div');
         el.className = 'device-item';
         el.draggable = true;
-        el.innerHTML = '<div class="dev-icon" style="background:' + dt.color + '22;color:' + dt.color + '">' + dt.icon + '</div><span>' + dt.label + '</span>';
-        el.addEventListener('dragstart', function(e) {
+        el.innerHTML = `<div class="dev-icon" style="background:${dt.color}22;color:${dt.color}">${dt.icon}</div><span>${dt.label}</span>`;
+        el.addEventListener('dragstart', e => {
           e.dataTransfer.setData('text/plain', dt.id);
           e.dataTransfer.effectAllowed = 'copy';
         });
@@ -544,14 +390,14 @@
     }
 
     /* ─── canvas drop ─────────────────────────────────────────────── */
-    canvasWrap.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-    canvasWrap.addEventListener('drop', function(e) {
+    canvasWrap.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    canvasWrap.addEventListener('drop', e => {
       e.preventDefault();
-      var typeId = e.dataTransfer.getData('text/plain');
+      const typeId = e.dataTransfer.getData('text/plain');
       if (!typeId) return;
-      var rect = svg.getBoundingClientRect();
-      var x = (e.clientX - rect.left) / zoom - panX / zoom;
-      var y = (e.clientY - rect.top) / zoom - panY / zoom;
+      const rect = svg.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom - panX / zoom;
+      const y = (e.clientY - rect.top) / zoom - panY / zoom;
       saveUndo();
       addDevice(typeId, x - DEV_W/2, y - DEV_H/2);
       clearSelection();
@@ -561,8 +407,8 @@
 
     /* ─── device CRUD ─────────────────────────────────────────────── */
     function addDevice(typeId, x, y) {
-      var dt = DEVICE_TYPES.find(function(d) { return d.id === typeId; });
-      var dev = { id: 'dev-' + nextId++, type: typeId, x: x, y: y, label: dt.label, ip: '' };
+      const dt = DEVICE_TYPES.find(d => d.id === typeId);
+      const dev = { id: `dev-${nextId++}`, type: typeId, x, y, label: dt.label, ip: '' };
       devices.push(dev);
       return dev;
     }
@@ -570,8 +416,8 @@
     function deleteSelected() {
       if (selectedId) {
         saveUndo();
-        connections = connections.filter(function(c) { return c.from.devId !== selectedId && c.to.devId !== selectedId; });
-        devices = devices.filter(function(d) { return d.id !== selectedId; });
+        connections = connections.filter(c => c.from.devId !== selectedId && c.to.devId !== selectedId);
+        devices = devices.filter(d => d.id !== selectedId);
         selectedId = null;
         renderAll();
         updateStatus();
@@ -581,24 +427,24 @@
 
     /* ─── rendering ───────────────────────────────────────────────── */
     function renderAll() {
-      var NS = 'http://www.w3.org/2000/svg';
-      var g = document.createElementNS(NS, 'g');
-      g.setAttribute('transform', 'translate(' + panX + ',' + panY + ') scale(' + zoom + ')');
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('transform', `translate(${panX},${panY}) scale(${zoom})`);
 
       // connections
-      connections.forEach(function(conn) {
-        var fromDev = devices.find(function(d) { return d.id === conn.from.devId; });
-        var toDev = devices.find(function(d) { return d.id === conn.to.devId; });
+      connections.forEach(conn => {
+        const fromDev = devices.find(d => d.id === conn.from.devId);
+        const toDev = devices.find(d => d.id === conn.to.devId);
         if (!fromDev || !toDev) return;
-        var fp = getPortPos(fromDev, conn.from.port);
-        var tp = getPortPos(toDev, conn.to.port);
-        var midX = (fp.x + tp.x) / 2;
-        var path = document.createElementNS(NS, 'path');
-        path.setAttribute('d', 'M' + fp.x + ',' + fp.y + ' C' + midX + ',' + fp.y + ' ' + midX + ',' + tp.y + ' ' + tp.x + ',' + tp.y);
+        const fp = getPortPos(fromDev, conn.from.port);
+        const tp = getPortPos(toDev, conn.to.port);
+        const midX = (fp.x + tp.x) / 2;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = `M${fp.x},${fp.y} C${midX},${fp.y} ${midX},${tp.y} ${tp.x},${tp.y}`;
+        path.setAttribute('d', d);
         path.setAttribute('data-conn-id', conn.id);
         path.classList.add('conn-line');
         if (conn.id === selectedLineId) path.classList.add('selected-line');
-        path.addEventListener('click', function(e) {
+        path.addEventListener('click', (e) => {
           e.stopPropagation();
           if (mode === 'select') {
             selectedLineId = conn.id;
@@ -611,16 +457,16 @@
       });
 
       // devices
-      devices.forEach(function(dev) {
-        var dt = DEVICE_TYPES.find(function(d) { return d.id === dev.type; });
-        var group = document.createElementNS(NS, 'g');
-        group.setAttribute('transform', 'translate(' + dev.x + ',' + dev.y + ')');
+      devices.forEach(dev => {
+        const dt = DEVICE_TYPES.find(d => d.id === dev.type);
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('transform', `translate(${dev.x},${dev.y})`);
         group.setAttribute('data-dev-id', dev.id);
         group.classList.add('dev-group');
         if (dev.id === selectedId) group.classList.add('selected');
 
         // body
-        var rect = document.createElementNS(NS, 'rect');
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         rect.setAttribute('x', 0); rect.setAttribute('y', 0);
         rect.setAttribute('width', DEV_W); rect.setAttribute('height', DEV_H);
         rect.setAttribute('rx', 8); rect.setAttribute('ry', 8);
@@ -629,14 +475,14 @@
         group.appendChild(rect);
 
         // icon area
-        var iconBg = document.createElementNS(NS, 'rect');
+        const iconBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         iconBg.setAttribute('x', 6); iconBg.setAttribute('y', 10);
         iconBg.setAttribute('width', 26); iconBg.setAttribute('height', 26);
         iconBg.setAttribute('rx', 5);
         iconBg.setAttribute('fill', dt.color + '22');
         group.appendChild(iconBg);
 
-        var iconText = document.createElementNS(NS, 'text');
+        const iconText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         iconText.setAttribute('x', 19); iconText.setAttribute('y', 29);
         iconText.setAttribute('text-anchor', 'middle');
         iconText.setAttribute('font-size', '14');
@@ -645,20 +491,20 @@
         group.appendChild(iconText);
 
         // label
-        var label = document.createElementNS(NS, 'text');
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('x', DEV_W/2); label.setAttribute('y', 50);
         label.classList.add('dev-label');
         label.textContent = dev.label;
         group.appendChild(label);
 
         // ports
-        PORT_POSITIONS.forEach(function(pos) {
-          var pp = getPortLocal(pos);
-          var circle = document.createElementNS(NS, 'circle');
+        PORT_POSITIONS.forEach(pos => {
+          const pp = getPortLocal(pos);
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
           circle.setAttribute('cx', pp.x); circle.setAttribute('cy', pp.y);
           circle.setAttribute('r', PORT_R);
           circle.classList.add('dev-port');
-          circle.addEventListener('mousedown', function(e) {
+          circle.addEventListener('mousedown', (e) => {
             e.stopPropagation();
             if (mode === 'connect') {
               connectFrom = { devId: dev.id, port: pos };
@@ -666,12 +512,12 @@
               renderAll();
             }
           });
-          circle.addEventListener('mouseup', function(e) {
+          circle.addEventListener('mouseup', (e) => {
             e.stopPropagation();
             if (mode === 'connect' && connectFrom && connectFrom.devId !== dev.id) {
               saveUndo();
               connections.push({
-                id: 'conn-' + nextId++,
+                id: `conn-${nextId++}`,
                 from: { devId: connectFrom.devId, port: connectFrom.port },
                 to: { devId: dev.id, port: pos }
               });
@@ -684,7 +530,7 @@
         });
 
         // drag
-        group.addEventListener('mousedown', function(e) {
+        group.addEventListener('mousedown', (e) => {
           if (e.target.classList.contains('dev-port')) return;
           e.stopPropagation();
           if (mode === 'select') {
@@ -693,13 +539,13 @@
             renderAll();
             showProps();
             dragTarget = dev;
-            var rect = svg.getBoundingClientRect();
+            const rect = svg.getBoundingClientRect();
             dragOffsetX = (e.clientX - rect.left) / zoom - panX / zoom - dev.x;
             dragOffsetY = (e.clientY - rect.top) / zoom - panY / zoom - dev.y;
           }
         });
 
-        group.addEventListener('dblclick', function(e) {
+        group.addEventListener('dblclick', (e) => {
           e.stopPropagation();
           selectedId = dev.id;
           selectedLineId = null;
@@ -710,12 +556,12 @@
         g.appendChild(group);
       });
 
-      // connect preview pulse
+      // connect preview
       if (connectFrom && mode === 'connect') {
-        var fromDev = devices.find(function(d) { return d.id === connectFrom.devId; });
+        const fromDev = devices.find(d => d.id === connectFrom.devId);
         if (fromDev) {
-          var fp = getPortPos(fromDev, connectFrom.port);
-          var preview = document.createElementNS(NS, 'circle');
+          const fp = getPortPos(fromDev, connectFrom.port);
+          const preview = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
           preview.setAttribute('cx', fp.x); preview.setAttribute('cy', fp.y);
           preview.setAttribute('r', PORT_R + 2);
           preview.setAttribute('fill', 'none');
@@ -729,12 +575,13 @@
       svg.innerHTML = '';
       svg.appendChild(g);
 
+      // toolbar state
       document.getElementById('btn-delete').disabled = !selectedId && !selectedLineId;
       document.getElementById('btn-undo').disabled = undoStack.length === 0;
       document.getElementById('btn-redo').disabled = redoStack.length === 0;
       document.getElementById('status-pos').textContent = selectedId
-        ? '选中: ' + selectedId
-        : selectedLineId ? '选中连线: ' + selectedLineId : '';
+        ? `选中: ${selectedId}`
+        : selectedLineId ? `选中连线: ${selectedLineId}` : '';
     }
 
     function getPortLocal(pos) {
@@ -747,16 +594,19 @@
     }
 
     function getPortPos(dev, port) {
-      var local = getPortLocal(port);
+      const local = getPortLocal(port);
       return { x: dev.x + local.x, y: dev.y + local.y };
     }
 
     /* ─── mouse events (canvas level) ─────────────────────────────── */
-    svg.addEventListener('mousemove', function(e) {
+    svg.addEventListener('mousemove', (e) => {
       if (dragTarget && mode === 'select') {
-        var rect = svg.getBoundingClientRect();
-        dragTarget.x = Math.round((e.clientX - rect.left) / zoom - panX / zoom - dragOffsetX);
-        dragTarget.y = Math.round((e.clientY - rect.top) / zoom - panY / zoom - dragOffsetY);
+        const rect = svg.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) / zoom - panX / zoom;
+        const my = (e.clientY - rect.top) / zoom - panY / zoom;
+        saveUndo();
+        dragTarget.x = Math.round(mx - dragOffsetX);
+        dragTarget.y = Math.round(my - dragOffsetY);
         renderAll();
         return;
       }
@@ -766,20 +616,26 @@
         renderAll();
         return;
       }
+      // update connect preview position
+      if (connectFrom && mode === 'connect') {
+        renderAll();
+      }
     });
 
-    svg.addEventListener('mouseup', function() {
+    svg.addEventListener('mouseup', () => {
       if (dragTarget) { dragTarget = null; }
       if (isPanning) { isPanning = false; canvasWrap.classList.remove('panning'); }
     });
 
-    svg.addEventListener('mouseleave', function() {
+    svg.addEventListener('mouseleave', () => {
       if (dragTarget) { dragTarget = null; }
       if (isPanning) { isPanning = false; canvasWrap.classList.remove('panning'); }
     });
 
-    svg.addEventListener('mousedown', function(e) {
-      if (e.target === svg || e.target === canvasWrap || e.target.classList.contains('canvas-wrap')) {
+    // pan with middle mouse or space+drag
+    svg.addEventListener('mousedown', (e) => {
+      if (e.target === svg || e.target.classList.contains('canvas-wrap')) {
+        // click on empty canvas
         if (mode === 'connect' && connectFrom) {
           connectFrom = null;
           renderAll();
@@ -788,22 +644,24 @@
         clearSelection();
         renderAll();
         showProps();
-        if (e.button === 0) {
+        // start pan
+        if (e.button === 1 || e.button === 0) {
           isPanning = true;
-          panStart = { x: e.clientX, y: e.clientY, panX: panX, panY: panY };
+          panStart = { x: e.clientX, y: e.clientY, panX, panY };
           canvasWrap.classList.add('panning');
         }
       }
     });
 
-    canvasWrap.addEventListener('wheel', function(e) {
+    canvasWrap.addEventListener('wheel', (e) => {
       e.preventDefault();
-      var delta = e.deltaY > 0 ? -0.08 : 0.08;
-      var newZoom = Math.min(3, Math.max(0.2, zoom + delta));
-      var rect = svg.getBoundingClientRect();
-      var mx = e.clientX - rect.left;
-      var my = e.clientY - rect.top;
-      var scale = newZoom / zoom;
+      const delta = e.deltaY > 0 ? -0.08 : 0.08;
+      const newZoom = Math.min(3, Math.max(0.2, zoom + delta));
+      // zoom toward cursor
+      const rect = svg.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const scale = newZoom / zoom;
       panX = mx - scale * (mx - panX);
       panY = my - scale * (my - panY);
       zoom = newZoom;
@@ -812,7 +670,7 @@
     });
 
     /* ─── keyboard ────────────────────────────────────────────────── */
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       switch(e.key) {
         case 'Delete':
@@ -846,24 +704,24 @@
       connectFrom = null;
       document.getElementById('btn-select').classList.toggle('accent', m === 'select');
       document.getElementById('btn-connect').classList.toggle('accent', m === 'connect');
-      document.getElementById('status-mode').textContent = '模式: ' + (m === 'select' ? '选择' : '连线');
+      document.getElementById('status-mode').textContent = `模式: ${m === 'select' ? '选择' : '连线'}`;
       renderAll();
     }
 
-    document.getElementById('btn-select').addEventListener('click', function() { setMode('select'); });
-    document.getElementById('btn-connect').addEventListener('click', function() { setMode('connect'); });
+    document.getElementById('btn-select').addEventListener('click', () => setMode('select'));
+    document.getElementById('btn-connect').addEventListener('click', () => setMode('connect'));
 
     /* ─── undo / redo ─────────────────────────────────────────────── */
     function saveUndo() {
-      undoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
+      undoStack.push(JSON.stringify({ devices, connections, nextId }));
       if (undoStack.length > 50) undoStack.shift();
       redoStack = [];
     }
 
     function undo() {
       if (undoStack.length === 0) return;
-      redoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
-      var state = JSON.parse(undoStack.pop());
+      redoStack.push(JSON.stringify({ devices, connections, nextId }));
+      const state = JSON.parse(undoStack.pop());
       devices = state.devices;
       connections = state.connections;
       nextId = state.nextId;
@@ -876,8 +734,8 @@
 
     function redo() {
       if (redoStack.length === 0) return;
-      undoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
-      var state = JSON.parse(redoStack.pop());
+      undoStack.push(JSON.stringify({ devices, connections, nextId }));
+      const state = JSON.parse(redoStack.pop());
       devices = state.devices;
       connections = state.connections;
       nextId = state.nextId;
@@ -896,34 +754,34 @@
     function updateZoomLabel() {
       document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
     }
-    document.getElementById('btn-zoom-in').addEventListener('click', function() {
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
       zoom = Math.min(3, zoom + 0.15);
       renderAll();
       updateZoomLabel();
     });
-    document.getElementById('btn-zoom-out').addEventListener('click', function() {
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
       zoom = Math.max(0.2, zoom - 0.15);
       renderAll();
       updateZoomLabel();
     });
-    document.getElementById('btn-fit').addEventListener('click', function() {
+    document.getElementById('btn-fit').addEventListener('click', () => {
       if (devices.length === 0) { zoom = 1; panX = 0; panY = 0; }
       else {
-        var pad = 80;
-        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        devices.forEach(function(d) {
+        const pad = 80;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        devices.forEach(d => {
           if (d.x < minX) minX = d.x;
           if (d.y < minY) minY = d.y;
           if (d.x + DEV_W > maxX) maxX = d.x + DEV_W;
           if (d.y + DEV_H > maxY) maxY = d.y + DEV_H;
         });
-        var cw = canvasWrap.clientWidth;
-        var ch = canvasWrap.clientHeight;
-        var contentW = maxX - minX + pad * 2;
-        var contentH = maxY - minY + pad * 2;
+        const cw = canvasWrap.clientWidth;
+        const ch = canvasWrap.clientHeight;
+        const contentW = maxX - minX + pad * 2;
+        const contentH = maxY - minY + pad * 2;
         zoom = Math.min(cw / contentW, ch / contentH, 1.5);
-        panX = cw/2 - (minX + (maxX - minX)/2) * zoom;
-        panY = ch/2 - (minY + (maxY - minY)/2) * zoom;
+        panX = cw/2 - (minX + (maxX-minX)/2) * zoom;
+        panY = ch/2 - (minY + (maxY-minY)/2) * zoom;
       }
       renderAll();
       updateZoomLabel();
@@ -937,26 +795,29 @@
 
     /* ─── properties panel ────────────────────────────────────────── */
     function showProps() {
-      var body = document.getElementById('props-body');
-      var typeLabel = document.getElementById('props-device-type');
+      const body = document.getElementById('props-body');
+      const typeLabel = document.getElementById('props-device-type');
       if (selectedLineId) {
-        var conn = connections.find(function(c) { return c.id === selectedLineId; });
+        const conn = connections.find(c => c.id === selectedLineId);
         if (!conn) { body.innerHTML = '<p class="props-empty">选择一个设备查看属性</p>'; typeLabel.textContent = ''; return; }
-        var fromDev = devices.find(function(d) { return d.id === conn.from.devId; });
-        var toDev = devices.find(function(d) { return d.id === conn.to.devId; });
-
-        // Ensure bandwidth/delay defaults
-        if (conn.bandwidth === undefined) conn.bandwidth = 100;
-        if (conn.delay === undefined) conn.delay = 5;
-
+        const fromDev = devices.find(d => d.id === conn.from.devId);
+        const toDev = devices.find(d => d.id === conn.to.devId);
         typeLabel.textContent = '连线';
-        body.innerHTML =
-          '<div class="prop-group"><label>连线 ID</label><input readonly value="' + conn.id + '" /></div>' +
-          '<div class="prop-group"><label>起点</label><input readonly value="' + (fromDev ? fromDev.label : '?') + ' · ' + conn.from.port + '" /></div>' +
-          '<div class="prop-group"><label>终点</label><input readonly value="' + (toDev ? toDev.label : '?') + ' · ' + conn.to.port + '" /></div>' +
-          '<div class="prop-group"><label>带宽 (Mbps)</label><input type="number" value="' + conn.bandwidth + '" min="1" max="10000" step="1" onchange="updateConnProp(\'bandwidth\', parseFloat(this.value))" /></div>' +
-          '<div class="prop-group"><label>时延 (ms)</label><input type="number" value="' + conn.delay + '" min="0" max="500" step="0.1" onchange="updateConnProp(\'delay\', parseFloat(this.value))" /></div>' +
-          '<button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelectedLine()">删除连线</button>';
+        body.innerHTML = `
+          <div class="prop-group">
+            <label>连线 ID</label>
+            <input readonly value="${conn.id}" />
+          </div>
+          <div class="prop-group">
+            <label>起点</label>
+            <input readonly value="${fromDev ? fromDev.label : '?'} · ${conn.from.port}" />
+          </div>
+          <div class="prop-group">
+            <label>终点</label>
+            <input readonly value="${toDev ? toDev.label : '?'} · ${conn.to.port}" />
+          </div>
+          <button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelectedLine()">删除连线</button>
+        `;
         return;
       }
       if (!selectedId) {
@@ -964,23 +825,40 @@
         typeLabel.textContent = '';
         return;
       }
-      var dev = devices.find(function(d) { return d.id === selectedId; });
+      const dev = devices.find(d => d.id === selectedId);
       if (!dev) { body.innerHTML = '<p class="props-empty">选择一个设备查看属性</p>'; typeLabel.textContent = ''; return; }
-      var dt = DEVICE_TYPES.find(function(d) { return d.id === dev.type; });
+      const dt = DEVICE_TYPES.find(d => d.id === dev.type);
       typeLabel.textContent = dt ? dt.label : '';
-      var opts = DEVICE_TYPES.map(function(d) { return '<option value="' + d.id + '"' + (dev.type === d.id ? ' selected' : '') + '>' + d.label + '</option>'; }).join('');
-      body.innerHTML =
-        '<div class="prop-group"><label>名称</label><input value="' + escHtml(dev.label) + '" onchange="updateDeviceProp(\'label\', this.value)" /></div>' +
-        '<div class="prop-group"><label>类型</label><select onchange="updateDeviceProp(\'type\', this.value)">' + opts + '</select></div>' +
-        '<div class="prop-group"><label>IP 地址</label><input value="' + escHtml(dev.ip) + '" placeholder="192.168.1.1" onchange="updateDeviceProp(\'ip\', this.value)" /></div>' +
-        '<div class="prop-group"><label>位置 X</label><input type="number" value="' + Math.round(dev.x) + '" onchange="updateDeviceProp(\'x\', parseFloat(this.value))" /></div>' +
-        '<div class="prop-group"><label>位置 Y</label><input type="number" value="' + Math.round(dev.y) + '" onchange="updateDeviceProp(\'y\', parseFloat(this.value))" /></div>' +
-        '<button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelected()">删除设备</button>';
+      body.innerHTML = `
+        <div class="prop-group">
+          <label>名称</label>
+          <input value="${escapeHtml(dev.label)}" onchange="updateDeviceProp('label', this.value)" />
+        </div>
+        <div class="prop-group">
+          <label>类型</label>
+          <select onchange="updateDeviceProp('type', this.value)">
+            ${DEVICE_TYPES.map(dt => `<option value="${dt.id}" ${dev.type === dt.id ? 'selected' : ''}>${dt.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="prop-group">
+          <label>IP 地址</label>
+          <input value="${escapeHtml(dev.ip)}" placeholder="192.168.1.1" onchange="updateDeviceProp('ip', this.value)" />
+        </div>
+        <div class="prop-group">
+          <label>位置 X</label>
+          <input type="number" value="${Math.round(dev.x)}" onchange="updateDeviceProp('x', parseFloat(this.value))" />
+        </div>
+        <div class="prop-group">
+          <label>位置 Y</label>
+          <input type="number" value="${Math.round(dev.y)}" onchange="updateDeviceProp('y', parseFloat(this.value))" />
+        </div>
+        <button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelected()">删除设备</button>
+      `;
     }
 
     function updateDeviceProp(prop, value) {
       if (!selectedId) return;
-      var dev = devices.find(function(d) { return d.id === selectedId; });
+      const dev = devices.find(d => d.id === selectedId);
       if (!dev) return;
       saveUndo();
       dev[prop] = value;
@@ -988,20 +866,10 @@
       showProps();
     }
 
-    function updateConnProp(prop, value) {
-      if (!selectedLineId) return;
-      var conn = connections.find(function(c) { return c.id === selectedLineId; });
-      if (!conn) return;
-      saveUndo();
-      conn[prop] = value;
-      renderAll();
-      showProps();
-    }
-
     function deleteSelectedLine() {
       if (selectedLineId) {
         saveUndo();
-        connections = connections.filter(function(c) { return c.id !== selectedLineId; });
+        connections = connections.filter(c => c.id !== selectedLineId);
         selectedLineId = null;
         renderAll();
         updateStatus();
@@ -1009,303 +877,47 @@
       }
     }
 
-    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     /* ─── status bar ──────────────────────────────────────────────── */
     function updateStatus() {
-      document.getElementById('status-count').textContent = '设备: ' + devices.length;
-      document.getElementById('status-conn').textContent = '连线: ' + connections.length;
+      document.getElementById('status-count').textContent = `设备: ${devices.length}`;
+      document.getElementById('status-conn').textContent = `连线: ${connections.length}`;
       document.getElementById('btn-delete').disabled = !selectedId && !selectedLineId;
       document.getElementById('btn-undo').disabled = undoStack.length === 0;
       document.getElementById('btn-redo').disabled = redoStack.length === 0;
     }
 
     /* ─── export / import ─────────────────────────────────────────── */
-    document.getElementById('btn-export').addEventListener('click', function() {
-      var data = { devices: devices, connections: connections, nextId: nextId };
-      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const data = { devices, connections, nextId };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
       a.href = url; a.download = 'topology.json';
       a.click();
       URL.revokeObjectURL(url);
     });
-
-    /* ─── deploy ───────────────────────────────────────────────── */
-    var API_BASE = '';  // same-origin, served from backend
-    var deployResult = null;
-
-    document.getElementById('btn-deploy').addEventListener('click', function() {
-      if (devices.length === 0) { alert('请先添加设备'); return; }
-
-      var btn = document.getElementById('btn-deploy');
-      btn.disabled = true;
-      btn.textContent = '部署中...';
-
-      // Build topology JSON with connection properties
-      var topo = {
-        devices: devices.map(function(d) { return { id: d.id, type: d.type, x: d.x, y: d.y, label: d.label, ip: d.ip }; }),
-        connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
-      };
-
-      fetch(API_BASE + '/api/infer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(topo)
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(result) {
-        deployResult = result;
-        btn.disabled = false;
-        btn.textContent = '部署';
-        if (result.status === 'completed') {
-          showResults(result);
-        } else {
-          alert('部署失败: ' + (result.error || '未知错误'));
-        }
-      })
-      .catch(function(err) {
-        btn.disabled = false;
-        btn.textContent = '部署';
-        alert('请求失败: ' + err.message + '\n请确认后端已启动 (python backend/run.py)');
-      });
-    });
-
-    /* ─── results display ──────────────────────────────────────── */
-    var PATH_COLORS = ['#4C9AFF','#36B37E','#FF5630','#6554C0','#FF8B00','#00B8D9','#8777D9','#FFC400'];
-
-    function showResults(result) {
-      deployResult = result;
-      var panel = document.getElementById('result-panel');
-      var tbody = document.getElementById('result-tbody');
-      var select = document.getElementById('flow-select');
-      var countEl = document.getElementById('result-flow-count');
-
-      countEl.textContent = result.flows.length;
-
-      // Populate flow selector
-      select.innerHTML = '<option value="">全部</option>';
-      result.flows.forEach(function(f, i) {
-        select.innerHTML += '<option value="' + i + '">流 ' + f.flow_id + ' (' + f.src + '→' + f.dst + ')</option>';
-      });
-
-      // Populate table
-      tbody.innerHTML = '';
-      result.flows.forEach(function(f, i) {
-        var pathStr = f.selected_path.join(' → ');
-        var ospfStr = f.ospf_path ? f.ospf_path.join(' → ') : '-';
-        var tr = document.createElement('tr');
-        tr.id = 'flow-row-' + i;
-        tr.innerHTML =
-          '<td>' + f.flow_id + '</td>' +
-          '<td>' + f.src + ' → ' + f.dst + '</td>' +
-          '<td>' + f.bw_req + '</td>' +
-          '<td>' + f.phi + '</td>' +
-          '<td>' + pathStr + '</td>' +
-          '<td>' + f.hops + '</td>' +
-          '<td>' + (f.max_link_utilization * 100).toFixed(1) + '%</td>' +
-          '<td>' + ospfStr + '</td>';
-        tr.addEventListener('click', function() { highlightFlow(i); });
-        tbody.appendChild(tr);
-      });
-
-      panel.classList.add('open');
-      highlightFlow(''); // show all paths initially
-    }
-
-    function highlightFlow(flowIdx) {
-      // Update table row highlighting
-      var rows = document.querySelectorAll('#result-tbody tr');
-      rows.forEach(function(r) { r.classList.remove('active-row'); });
-
-      if (flowIdx === '' || flowIdx === undefined) {
-        rows.forEach(function(r) { r.classList.add('active-row'); });
-      } else {
-        var row = document.getElementById('flow-row-' + flowIdx);
-        if (row) row.classList.add('active-row');
-      }
-
-      // Redraw canvas with path highlights
-      renderAll();
-      drawPathHighlights(flowIdx);
-    }
-
-    function drawPathHighlights(flowIdx) {
-      if (!deployResult || !deployResult.flows) return;
-
-      var NS = 'http://www.w3.org/2000/svg';
-      var svgEl = document.getElementById('topo-svg');
-      var g = svgEl.querySelector('g');
-
-      // Build device ID → integer node index mapping
-      var devIdToIdx = {};
-      devices.forEach(function(d, i) { devIdToIdx[d.id] = i; });
-
-      // Build node index → position (center of device)
-      var nodePos = {};
-      devices.forEach(function(d, i) {
-        var idx = devIdToIdx[d.id];
-        if (idx !== undefined) {
-          nodePos[idx] = { x: d.x + DEV_W/2, y: d.y + DEV_H/2 };
-        }
-      });
-
-      var flowsToShow = [];
-      if (flowIdx === '' || flowIdx === undefined) {
-        flowsToShow = deployResult.flows;
-      } else {
-        flowsToShow = [deployResult.flows[parseInt(flowIdx)]];
-      }
-
-      flowsToShow.forEach(function(f, fi) {
-        var color = PATH_COLORS[fi % PATH_COLORS.length];
-        var path = f.selected_path;
-        if (!path || path.length < 2) return;
-
-        // Draw background glow
-        var bgPath = document.createElementNS(NS, 'path');
-        bgPath.classList.add('path-highlight-bg');
-        bgPath.setAttribute('stroke', color);
-        var dStr = '';
-        for (var i = 0; i < path.length; i++) {
-          var pos = nodePos[path[i]];
-          if (!pos) continue;
-          if (i === 0) dStr += 'M' + pos.x + ',' + pos.y;
-          else dStr += ' L' + pos.x + ',' + pos.y;
-        }
-        bgPath.setAttribute('d', dStr);
-        g.appendChild(bgPath);
-
-        // Draw foreground line
-        var fgPath = document.createElementNS(NS, 'path');
-        fgPath.classList.add('path-highlight');
-        fgPath.setAttribute('stroke', color);
-        fgPath.setAttribute('d', dStr);
-        g.appendChild(fgPath);
-      });
-    }
-
-    function closeResults() {
-      deployResult = null;
-      document.getElementById('result-panel').classList.remove('open');
-      renderAll();
-    }
-
-    /* ─── chat ──────────────────────────────────────────────────── */
-    var chatOpen = false;
-
-    // Load saved settings
-    function loadChatSettings() {
-      try {
-        var saved = JSON.parse(localStorage.getItem('ai-router-chat-settings') || '{}');
-        document.getElementById('chat-api-key').value = saved.api_key || '';
-        document.getElementById('chat-base-url').value = saved.base_url || '';
-      } catch(e) {}
-    }
-
-    function saveChatSettings() {
-      var settings = {
-        api_key: document.getElementById('chat-api-key').value.trim(),
-        base_url: document.getElementById('chat-base-url').value.trim(),
-      };
-      localStorage.setItem('ai-router-chat-settings', JSON.stringify(settings));
-    }
-
-    function toggleChat() {
-      chatOpen = !chatOpen;
-      document.getElementById('chat-panel').classList.toggle('open', chatOpen);
-      if (chatOpen) loadChatSettings();
-    }
-
-    function toggleChatSettings() {
-      var el = document.getElementById('chat-settings');
-      el.style.display = el.style.display === 'none' ? 'block' : 'none';
-      if (el.style.display === 'block') loadChatSettings();
-    }
-
-    function addChatMessage(role, text) {
-      var msgs = document.getElementById('chat-messages');
-      var div = document.createElement('div');
-      div.className = 'chat-msg ' + role;
-      div.textContent = text;
-      msgs.appendChild(div);
-      msgs.scrollTop = msgs.scrollHeight;
-    }
-
-    function sendChat() {
-      var input = document.getElementById('chat-input');
-      var msg = input.value.trim();
-      if (!msg) return;
-      input.value = '';
-      addChatMessage('user', msg);
-
-      // Build current topology state
-      var topo = {
-        devices: devices.map(function(d) { return { id: d.id, type: d.type, x: d.x, y: d.y, label: d.label, ip: d.ip }; }),
-        connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
-      };
-
-      addChatMessage('agent', '处理中...');
-      var loadingMsg = document.getElementById('chat-messages').lastChild;
-
-      var apiKey = document.getElementById('chat-api-key').value.trim() || null;
-      var baseUrl = document.getElementById('chat-base-url').value.trim() || null;
-
-      fetch(API_BASE + '/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, topology: topo, api_key: apiKey, base_url: baseUrl })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(resp) {
-        // Remove loading message
-        if (loadingMsg) loadingMsg.remove();
-
-        addChatMessage('agent', resp.reply || '已完成');
-
-        // Handle actions
-        if (resp.action === 'load_topology' && resp.topology) {
-          saveUndo();
-          devices = resp.topology.devices;
-          connections = resp.topology.connections;
-          nextId = Math.max.apply(null, devices.map(function(d) { return parseInt(d.id.split('-')[1]) || 0; })) + 1;
-          renderAll();
-          updateStatus();
-          showProps();
-          document.getElementById('btn-fit').click();
-          addChatMessage('agent', '拓扑已加载到编辑器中，你可以修改后点击"部署"。');
-        }
-
-        if (resp.action === 'show_results' && resp.results) {
-          showResults(resp.results);
-          addChatMessage('agent', '推理结果已展示在下方面板。');
-        }
-      })
-      .catch(function(err) {
-        if (loadingMsg) loadingMsg.remove();
-        addChatMessage('agent', '请求失败: ' + err.message);
-      });
-    }
 
     /* ─── init ────────────────────────────────────────────────────── */
     function init() {
       buildPalette();
       setMode('select');
 
-      // pre-populate sample topology
-      var r1 = addDevice('router', 400, 80);
+      // pre-populate with a sample topology
+      const r1 = addDevice('router', 400, 80);
       r1.label = 'Core Router'; r1.ip = '10.0.0.1';
-      var fw = addDevice('firewall', 400, 220);
+      const fw = addDevice('firewall', 400, 220);
       fw.label = 'Edge FW'; fw.ip = '10.0.0.2';
-      var sw = addDevice('switch', 400, 360);
+      const sw = addDevice('switch', 400, 360);
       sw.label = 'Core Switch'; sw.ip = '10.0.1.1';
-      var s1 = addDevice('server', 160, 500);
+      const s1 = addDevice('server', 160, 500);
       s1.label = 'Web-01'; s1.ip = '10.0.2.10';
-      var s2 = addDevice('server', 400, 500);
+      const s2 = addDevice('server', 400, 500);
       s2.label = 'App-01'; s2.ip = '10.0.2.20';
-      var s3 = addDevice('server', 640, 500);
+      const s3 = addDevice('server', 640, 500);
       s3.label = 'DB-01'; s3.ip = '10.0.2.30';
-      var lb = addDevice('lb', 160, 220);
+      const lb = addDevice('lb', 160, 220);
       lb.label = 'LB-01'; lb.ip = '10.0.0.10';
 
       connections.push(
@@ -1314,7 +926,7 @@
         { id: 'conn-3', from: { devId: sw.id, port: 'bottom' }, to: { devId: s1.id, port: 'top' } },
         { id: 'conn-4', from: { devId: sw.id, port: 'bottom' }, to: { devId: s2.id, port: 'top' } },
         { id: 'conn-5', from: { devId: sw.id, port: 'bottom' }, to: { devId: s3.id, port: 'top' } },
-        { id: 'conn-6', from: { devId: lb.id, port: 'right' }, to: { devId: fw.id, port: 'left' } }
+        { id: 'conn-6', from: { devId: lb.id, port: 'right' }, to: { devId: fw.id, port: 'left' } },
       );
       nextId = 100;
       undoStack = [];
@@ -1327,38 +939,5 @@
 
     init();
   </script>
-<!-- chat panel -->
-<button class="chat-toggle" id="chat-toggle" onclick="toggleChat()" title="AI 助手">&#9991;</button>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <span>AI 网络助手</span>
-    <div style="display:flex;align-items:center;gap:6px;">
-      <button class="tb-btn" id="chat-settings-btn" onclick="toggleChatSettings()" title="API 设置" style="border:none;padding:2px 6px;">&#9881;</button>
-      <button class="tb-btn" onclick="toggleChat()" style="border:none;padding:2px 6px;">&#10005;</button>
-    </div>
-  </div>
-  <div class="chat-settings" id="chat-settings" style="display:none;">
-    <div style="padding:8px var(--gap);border-bottom:1px solid var(--border);">
-      <div class="prop-group">
-        <label>API Key</label>
-        <input id="chat-api-key" type="password" placeholder="sk-..." onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
-      </div>
-      <div class="prop-group" style="margin-top:6px;">
-        <label>Base URL (可选)</label>
-        <input id="chat-base-url" type="text" placeholder="https://api.openai.com/v1" onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
-      </div>
-    </div>
-  </div>
-  <div class="chat-messages" id="chat-messages">
-    <div class="chat-msg agent">你好！我是网络拓扑助手。你可以用自然语言描述你想要的网络，我会帮你生成拓扑、配置流量并分析路由优化结果。
-
-试试说："帮我搭建一个三层电商架构，两台LB，三台App服务器，两台数据库主从"</div>
-  </div>
-  <div class="chat-input-wrap">
-    <input id="chat-input" placeholder="描述你的网络需求..." onkeydown="if(event.key==='Enter')sendChat()" />
-    <button onclick="sendChat()">发送</button>
-  </div>
-</div>
-
 </body>
 </html>

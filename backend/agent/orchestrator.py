@@ -1,11 +1,11 @@
 # backend/agent/orchestrator.py
-"""LLM Agent orchestrator using Claude API with function calling."""
+"""LLM Agent orchestrator using OpenAI-compatible API with function calling."""
 
 from __future__ import annotations
 
 import json
 
-from anthropic import Anthropic
+from openai import OpenAI
 
 from schemas.models import TopologyJSON, DeploymentResult, ChatResponse
 
@@ -24,67 +24,79 @@ When explaining results, compare the model's chosen path vs the OSPF path. Expla
 
 TOOLS = [
     {
-        "name": "generate_topology",
-        "description": "Generate a network topology from a natural language description. Returns a TopologyJSON that will be loaded into the editor.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "Natural language description of the desired network topology. Include device types, counts, and how they connect."
-                }
-            },
-            "required": ["description"]
-        }
-    },
-    {
-        "name": "generate_traffic",
-        "description": "Generate traffic flows for a topology based on a scenario description.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "num_nodes": {
-                    "type": "integer",
-                    "description": "Number of nodes in the topology."
+        "type": "function",
+        "function": {
+            "name": "generate_topology",
+            "description": "Generate a network topology from a natural language description. Returns a TopologyJSON that will be loaded into the editor.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Natural language description of the desired network topology."
+                    }
                 },
-                "scenario": {
-                    "type": "string",
-                    "description": "Description of the traffic scenario (e.g. 'video conferencing', 'database replication', 'web browsing peak')."
-                }
-            },
-            "required": ["num_nodes", "scenario"]
+                "required": ["description"]
+            }
         }
     },
     {
-        "name": "deploy_and_analyze",
-        "description": "Deploy the topology to Mininet, run traffic, and get model-optimized routes.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "topology_json": {
-                    "type": "string",
-                    "description": "JSON string of the topology."
+        "type": "function",
+        "function": {
+            "name": "generate_traffic",
+            "description": "Generate traffic flows for a topology based on a scenario description.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "num_nodes": {
+                        "type": "integer",
+                        "description": "Number of nodes in the topology."
+                    },
+                    "scenario": {
+                        "type": "string",
+                        "description": "Description of the traffic scenario (e.g. 'video conferencing', 'database replication')."
+                    }
                 },
-                "traffic_json": {
-                    "type": "string",
-                    "description": "JSON string of the traffic flows array."
-                }
-            },
-            "required": ["topology_json", "traffic_json"]
+                "required": ["num_nodes", "scenario"]
+            }
         }
     },
     {
-        "name": "explain_results",
-        "description": "Explain the routing optimization results in natural language.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "results_json": {
-                    "type": "string",
-                    "description": "JSON string of the deployment results."
-                }
-            },
-            "required": ["results_json"]
+        "type": "function",
+        "function": {
+            "name": "deploy_and_analyze",
+            "description": "Deploy the topology to Mininet, run traffic, and get model-optimized routes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topology_json": {
+                        "type": "string",
+                        "description": "JSON string of the topology."
+                    },
+                    "traffic_json": {
+                        "type": "string",
+                        "description": "JSON string of the traffic flows array."
+                    }
+                },
+                "required": ["topology_json", "traffic_json"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explain_results",
+            "description": "Explain the routing optimization results in natural language.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "results_json": {
+                        "type": "string",
+                        "description": "JSON string of the deployment results."
+                    }
+                },
+                "required": ["results_json"]
+            }
         }
     },
 ]
@@ -92,20 +104,25 @@ TOOLS = [
 
 class AgentOrchestrator:
     def __init__(self):
-        self.model = "claude-sonnet-4-6-20250514"
+        self.model = "gpt-4o"
 
-    def _get_client(self, api_key: str | None = None, base_url: str | None = None) -> Anthropic:
-        """Create an Anthropic client with the provided credentials.
-
-        api_key and base_url come from the user's frontend settings.
-        Falls back to ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL env vars.
-        """
+    def _get_client(self, api_key: str | None = None, base_url: str | None = None) -> OpenAI:
         kwargs = {}
         if api_key:
             kwargs["api_key"] = api_key
         if base_url:
             kwargs["base_url"] = base_url
-        return Anthropic(**kwargs)
+        return OpenAI(**kwargs)
+
+    @staticmethod
+    def _call_llm(client: OpenAI, model: str, messages: list[dict],
+                  max_tokens: int = 2048, tools: list[dict] | None = None) -> str:
+        """Make a single LLM call and return the text response."""
+        kwargs = dict(model=model, messages=messages, max_tokens=max_tokens)
+        if tools:
+            kwargs["tools"] = tools
+        resp = client.chat.completions.create(**kwargs)
+        return resp.choices[0].message
 
     def chat(
         self,
@@ -117,56 +134,33 @@ class AgentOrchestrator:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> ChatResponse:
-        """Process a user message through the Agent.
-
-        Args:
-            message: User's natural language message
-            topology: Current editor topology state (if any)
-            on_topology: Callback receiving TopologyJSON when agent generates one
-            on_traffic: Callback receiving traffic list when agent generates one
-            on_deploy: Callback receiving (topology, traffic) to trigger deploy
-            api_key: Anthropic API key (user-provided, overrides env var)
-            base_url: Anthropic API base URL (user-provided, overrides env var)
-
-        Returns:
-            ChatResponse with agent's reply and optional action data
-        """
         client = self._get_client(api_key, base_url)
 
-        messages = []
-
-        # Build context about current state
         context = "The user is interacting with the AI Router topology editor."
         if topology:
             context += f"\nCurrent topology: {len(topology.devices)} devices, {len(topology.connections)} connections."
         context += "\n\nUser message: " + message
 
-        messages.append({"role": "user", "content": context})
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ]
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages,
-        )
+        msg = self._call_llm(client, self.model, messages, max_tokens=2048, tools=TOOLS)
 
-        # Process tool calls
         result_topology = None
         result_data = None
-        reply = ""
+        reply = msg.content or ""
 
-        for block in response.content:
-            if block.type == "text":
-                reply += block.text
-            elif block.type == "tool_use":
+        # Process tool calls
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                name = tc.function.name
+                args = json.loads(tc.function.arguments)
+
                 tool_result = self._execute_tool(
-                    client,
-                    block,
-                    topology,
-                    on_topology,
-                    on_traffic,
-                    on_deploy,
+                    client, name, args,
+                    topology, on_topology, on_traffic, on_deploy,
                 )
                 if tool_result:
                     if isinstance(tool_result, TopologyJSON):
@@ -182,39 +176,24 @@ class AgentOrchestrator:
         )
 
     def _execute_tool(
-        self,
-        client: Anthropic,
-        tool_use,
-        current_topology: TopologyJSON | None,
-        on_topology: callable | None,
-        on_traffic: callable | None,
-        on_deploy: callable | None,
+        self, client: OpenAI, name: str, args: dict,
+        current_topology, on_topology, on_traffic, on_deploy,
     ):
-        name = tool_use.name
-        inp = tool_use.input
-
         if name == "generate_topology":
-            return self._tool_generate_topology(client, inp.get("description", ""), on_topology)
-
+            return self._tool_generate_topology(client, args.get("description", ""), on_topology)
         elif name == "generate_traffic":
             return self._tool_generate_traffic(
-                client, inp.get("num_nodes", 5), inp.get("scenario", ""), on_traffic
+                client, args.get("num_nodes", 5), args.get("scenario", ""), on_traffic
             )
-
         elif name == "deploy_and_analyze":
             return self._tool_deploy_and_analyze(
-                inp.get("topology_json", "{}"),
-                inp.get("traffic_json", "[]"),
-                on_deploy,
+                args.get("topology_json", "{}"), args.get("traffic_json", "[]"), on_deploy,
             )
-
         elif name == "explain_results":
-            return self._tool_explain_results(client, inp.get("results_json", "{}"))
-
+            return self._tool_explain_results(client, args.get("results_json", "{}"))
         return None
 
-    def _tool_generate_topology(self, client: Anthropic, description: str, on_topology) -> TopologyJSON | None:
-        """Use LLM to generate a topology JSON from description."""
+    def _tool_generate_topology(self, client: OpenAI, description: str, on_topology) -> TopologyJSON | None:
         prompt = f"""\
 Generate a network topology as a JSON object based on this description: "{description}"
 
@@ -232,20 +211,15 @@ Return ONLY valid JSON in this exact format:
 
 Rules:
 - Position devices in a readable layout (x from 100-800, y from 50-500)
-- Use ports "top", "right", "bottom", "left" appropriately for the layout
 - Set reasonable bandwidth (10-10000 Mbps) and delay (0-100 ms) for each link
 - Assign reasonable IPs (10.0.x.y)
 - Each device needs a unique id starting from "dev-1"
-- Each connection needs a unique id starting from "conn-1"
+- Each connection needs a unique id starting from "conn-1"\
 - Include ALL devices from the description"""
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        msg = self._call_llm(client, self.model, [{"role": "user", "content": prompt}], max_tokens=4096)
+        text = msg.content or ""
 
-        text = response.content[0].text
         json_start = text.find("{")
         json_end = text.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
@@ -256,10 +230,7 @@ Rules:
             return topo
         return None
 
-    def _tool_generate_traffic(
-        self, client: Anthropic, num_nodes: int, scenario: str, on_traffic
-    ) -> list[dict]:
-        """Generate traffic flows matching a scenario."""
+    def _tool_generate_traffic(self, client: OpenAI, num_nodes: int, scenario: str, on_traffic) -> list[dict]:
         prompt = f"""\
 Generate traffic flows for a network with {num_nodes} nodes based on this scenario: "{scenario}"
 
@@ -276,13 +247,9 @@ Rules:
 - Generate 5-15 realistic flows matching the scenario
 - Include a mix of phi values appropriate for the scenario"""
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        msg = self._call_llm(client, self.model, [{"role": "user", "content": prompt}], max_tokens=4096)
+        text = msg.content or ""
 
-        text = response.content[0].text
         json_start = text.find("[")
         json_end = text.rfind("]") + 1
         if json_start >= 0 and json_end > json_start:
@@ -293,20 +260,15 @@ Rules:
         return []
 
     def _tool_deploy_and_analyze(
-        self,
-        topology_json_str: str,
-        traffic_json_str: str,
-        on_deploy: callable | None,
+        self, topology_json_str: str, traffic_json_str: str, on_deploy: callable | None,
     ) -> DeploymentResult | None:
-        """Trigger deployment. Returns None (deploy is async in practice)."""
         if on_deploy:
             topology = TopologyJSON(**json.loads(topology_json_str))
             traffic = json.loads(traffic_json_str)
             return on_deploy(topology, traffic)
         return None
 
-    def _tool_explain_results(self, client: Anthropic, results_json_str: str) -> str:
-        """Use LLM to explain deployment results."""
+    def _tool_explain_results(self, client: OpenAI, results_json_str: str) -> str:
         prompt = f"""\
 Explain the following network routing optimization results in natural language.
 
@@ -317,10 +279,5 @@ Results:
 
 Be concise but insightful. Focus on the most interesting routing decisions."""
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return response.content[0].text
+        msg = self._call_llm(client, self.model, [{"role": "user", "content": prompt}], max_tokens=2048)
+        return msg.content or ""
