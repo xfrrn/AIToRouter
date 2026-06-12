@@ -106,25 +106,16 @@ class InferenceEngine:
                     f"Checkpoint not found at {self.ckpt_path}. "
                     "Train a model first or provide a valid checkpoint path."
                 )
+            import torch  # noqa: F811 — only needed when checkpoint exists
             self.policy = Policy(self.ckpt_path, device=self.device)
 
     def infer(
         self, G: nx.Graph, flows: list[dict]
     ) -> tuple[list[dict], dict]:
-        """Run inference on a list of flows over a topology.
+        self._ensure_loaded()
 
-        Args:
-            G: networkx undirected graph with edge attrs 'bandwidth' and 'delay'
-            flows: list of {flow_id, src, dst, bw_req, phi}
-
-        Returns:
-            (results, edge_utils) where results is a list of flow result dicts
-            and edge_utils maps (u,v) -> utilization
-        """
         import torch
         import numpy as np
-
-        self._ensure_loaded()
 
         N = G.number_of_nodes()
         self.L_max = N  # path buffer size = num nodes

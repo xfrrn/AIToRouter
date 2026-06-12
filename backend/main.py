@@ -180,8 +180,8 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
         # Try model inference, fall back to OSPF baseline
         try:
             flow_results, edge_utils = inference_engine.infer(G, flows)
-        except FileNotFoundError:
-            print("[INFO] No model checkpoint — using OSPF baseline")
+        except (FileNotFoundError, ImportError):
+            print("[INFO] Model not available — using OSPF baseline")
             flow_results, edge_utils = _run_ospf_baseline(G, flows)
 
         result = _build_result(job_id, G, flow_results, edge_utils)
@@ -311,7 +311,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         G, _ = build_nx_graph(topo)
         try:
             flow_results, edge_utils = inference_engine.infer(G, traffic)
-        except FileNotFoundError:
+        except (FileNotFoundError, ImportError):
             flow_results, edge_utils = _run_ospf_baseline(G, traffic)
 
         return _build_result("agent", G, flow_results, edge_utils)
