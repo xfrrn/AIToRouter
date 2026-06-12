@@ -322,6 +322,69 @@
   opacity: 0.15; stroke-linecap: round;
 }
 
+/* ─── chat panel ────────────────────────────────────────────── */
+.chat-toggle {
+  position: fixed; bottom: 20px; right: 20px;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--accent); color: #fff;
+  border: none; font-size: 20px;
+  cursor: pointer; z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: grid; place-items: center;
+}
+.chat-panel {
+  position: fixed; bottom: 80px; right: 20px;
+  width: 380px; height: 480px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+  display: none; flex-direction: column;
+  z-index: 200; overflow: hidden;
+}
+.chat-panel.open { display: flex; }
+.chat-header {
+  padding: 12px var(--gap-md);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-sm);
+  font-weight: 600;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: var(--gap-md);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.chat-msg {
+  max-width: 85%; padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: var(--fs-sm); line-height: 1.5;
+  white-space: pre-wrap;
+}
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--accent); color: #fff;
+}
+.chat-msg.agent {
+  align-self: flex-start;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.chat-input-wrap {
+  display: flex; padding: var(--gap);
+  border-top: 1px solid var(--border); gap: var(--gap);
+}
+.chat-input-wrap input {
+  flex: 1; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font: inherit; font-size: var(--fs-sm);
+  background: var(--bg); color: var(--fg);
+}
+.chat-input-wrap button {
+  padding: 8px 14px; border-radius: var(--radius);
+  background: var(--accent); color: #fff; border: none;
+  font-size: var(--fs-sm);
+}
+
   </style>
 </head>
 <body>
@@ -1122,6 +1185,75 @@
       renderAll();
     }
 
+    /* ─── chat ──────────────────────────────────────────────────── */
+    var chatOpen = false;
+
+    function toggleChat() {
+      chatOpen = !chatOpen;
+      document.getElementById('chat-panel').classList.toggle('open', chatOpen);
+    }
+
+    function addChatMessage(role, text) {
+      var msgs = document.getElementById('chat-messages');
+      var div = document.createElement('div');
+      div.className = 'chat-msg ' + role;
+      div.textContent = text;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function sendChat() {
+      var input = document.getElementById('chat-input');
+      var msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      addChatMessage('user', msg);
+
+      // Build current topology state
+      var topo = {
+        devices: devices.map(function(d) { return { id: d.id, type: d.type, x: d.x, y: d.y, label: d.label, ip: d.ip }; }),
+        connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
+      };
+
+      addChatMessage('agent', '处理中...');
+      var loadingMsg = document.getElementById('chat-messages').lastChild;
+
+      fetch(API_BASE + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, topology: topo })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(resp) {
+        // Remove loading message
+        if (loadingMsg) loadingMsg.remove();
+
+        addChatMessage('agent', resp.reply || '已完成');
+
+        // Handle actions
+        if (resp.action === 'load_topology' && resp.topology) {
+          saveUndo();
+          devices = resp.topology.devices;
+          connections = resp.topology.connections;
+          nextId = Math.max.apply(null, devices.map(function(d) { return parseInt(d.id.split('-')[1]) || 0; })) + 1;
+          renderAll();
+          updateStatus();
+          showProps();
+          document.getElementById('btn-fit').click();
+          addChatMessage('agent', '拓扑已加载到编辑器中，你可以修改后点击"部署"。');
+        }
+
+        if (resp.action === 'show_results' && resp.results) {
+          showResults(resp.results);
+          addChatMessage('agent', '推理结果已展示在下方面板。');
+        }
+      })
+      .catch(function(err) {
+        if (loadingMsg) loadingMsg.remove();
+        addChatMessage('agent', '请求失败: ' + err.message);
+      });
+    }
+
     /* ─── init ────────────────────────────────────────────────────── */
     function init() {
       buildPalette();
@@ -1162,5 +1294,23 @@
 
     init();
   </script>
+<!-- chat panel -->
+<button class="chat-toggle" id="chat-toggle" onclick="toggleChat()" title="AI 助手">&#9991;</button>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <span>AI 网络助手</span>
+    <button class="tb-btn" onclick="toggleChat()" style="border:none;padding:2px 6px;">&#10005;</button>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-msg agent">你好！我是网络拓扑助手。你可以用自然语言描述你想要的网络，我会帮你生成拓扑、配置流量并分析路由优化结果。
+
+试试说："帮我搭建一个三层电商架构，两台LB，三台App服务器，两台数据库主从"</div>
+  </div>
+  <div class="chat-input-wrap">
+    <input id="chat-input" placeholder="描述你的网络需求..." onkeydown="if(event.key==='Enter')sendChat()" />
+    <button onclick="sendChat()">发送</button>
+  </div>
+</div>
+
 </body>
 </html>
