@@ -413,7 +413,7 @@
     <button class="tb-btn accent" id="btn-deploy" title="部署到 Mininet 并运行推理">&#9654; 部署</button>
     <span class="sep"></span>
     <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
-    <button class="tb-btn" id="btn-import" style="display:none;">导入</button>
+    <button class="tb-btn" id="btn-import" title="导入 JSON">导入</button>
     <input type="file" id="import-file" accept=".json" style="display:none;" />
   </div>
 
@@ -1071,6 +1071,42 @@
       a.href = url; a.download = 'topology.json';
       a.click();
       URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btn-import').addEventListener('click', function() {
+      document.getElementById('import-file').click();
+    });
+
+    document.getElementById('import-file').addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          var data = JSON.parse(ev.target.result);
+          saveUndo();
+          devices = data.devices;
+          connections = data.connections.map(function(c) {
+            if (c.bandwidth === undefined) c.bandwidth = 100;
+            if (c.delay === undefined) c.delay = 5;
+            return c;
+          });
+          nextId = data.nextId || Math.max.apply(null, devices.map(function(d) {
+            return parseInt(d.id.split('-')[1]) || 0;
+          })) + 1;
+          undoStack = [];
+          redoStack = [];
+          selectedId = null;
+          selectedLineId = null;
+          renderAll();
+          updateStatus();
+          showProps();
+          document.getElementById('btn-fit').click();
+        } catch(err) {
+          alert('导入失败: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
     });
 
     /* ─── deploy ───────────────────────────────────────────────── */
