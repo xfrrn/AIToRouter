@@ -7,8 +7,11 @@ import uuid
 import time
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 
 from schemas.models import (
     TopologyJSON,
@@ -143,6 +146,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+async def root():
+    topo_html = Path(__file__).resolve().parent.parent / "topology-editor.html"
+    return FileResponse(topo_html)
 
 
 @app.get("/api/health")
