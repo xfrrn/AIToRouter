@@ -1,0 +1,67 @@
+# backend/schemas/models.py
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class Device(BaseModel):
+    id: str
+    type: str  # router, switch, firewall, server, laptop, database, lb, cloud, wifi, printer
+    x: float
+    y: float
+    label: str
+    ip: str = ""
+
+
+class ConnectionEndpoint(BaseModel):
+    devId: str
+    port: str  # top, right, bottom, left
+
+
+class Connection(BaseModel):
+    id: str
+    from_: ConnectionEndpoint = Field(alias="from")
+    to: ConnectionEndpoint
+    bandwidth: float = 100.0  # Mbps
+    delay: float = 5.0  # ms
+
+    class Config:
+        populate_by_name = True
+
+
+class TopologyJSON(BaseModel):
+    devices: list[Device]
+    connections: list[Connection]
+
+
+class FlowResult(BaseModel):
+    flow_id: int
+    src: int
+    dst: int
+    bw_req: float
+    phi: float
+    selected_path: list[int]
+    hops: int
+    max_link_utilization: float
+    ospf_path: list[int] | None = None
+
+
+class DeploymentResult(BaseModel):
+    job_id: str
+    status: str  # "running" | "completed" | "failed"
+    flows: list[FlowResult] = []
+    error: str | None = None
+    topology_nodes: list[int] = []
+    topology_edges: list[dict] = []  # [{src, dst, bandwidth, delay, utilization}]
+
+
+class ChatRequest(BaseModel):
+    message: str
+    topology: TopologyJSON | None = None  # current editor state, if any
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    action: str | None = None  # "load_topology" | "show_results" | None
+    topology: TopologyJSON | None = None
+    results: DeploymentResult | None = None
