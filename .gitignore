@@ -28,5 +28,8 @@ Thumbs.db
 # Dependencies (backend uses pyproject.toml + uv)
 backend/requirements.txt
 
+# Training artifacts (model checkpoints)
+runs/
+
 # Superpowers skills (auto-generated)
 .od-skills/

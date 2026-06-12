@@ -93,8 +93,10 @@ class InferenceEngine:
 
     def __init__(self, ckpt_path: str | None = None, device: str = "cpu"):
         if ckpt_path is None:
+            # Look for checkpoints in project root runs/ first
+            project_root = Path(__file__).resolve().parents[2]  # backend/../../
             ckpt_path = str(
-                _NETWORK_RL_ROOT.parent / "runs" / "FILM_PPO" / "best.pt"
+                project_root / "runs" / "FILM_PPO" / "best.pt"
             )
         self.device = device
         self.policy: Policy | None = None
