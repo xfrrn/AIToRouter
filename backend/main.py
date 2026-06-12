@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 import time
+import logging
 from contextlib import asynccontextmanager
 
 from pathlib import Path
@@ -23,6 +24,14 @@ from schemas.models import (
 from mininet.templates import build_nx_graph
 from traffic.generator import generate_flows
 from model.inference import InferenceEngine
+
+# ── Logging ───────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("ai-router")
 
 # Global state
 mn_manager = None  # MininetManager — initialized only if Docker is available
@@ -165,33 +174,40 @@ async def health():
 
 @app.post("/api/infer")
 async def infer(topology: TopologyJSON) -> DeploymentResult:
-    """Infer optimal routes from topology — no Docker required.
-
-    Uses the network-rl model if a checkpoint is available,
-    otherwise falls back to OSPF (hop-shortest) baseline.
-    """
+    """Infer optimal routes from topology — no Docker required."""
     job_id = uuid.uuid4().hex[:12]
+
+    log.info("=" * 50)
+    log.info("[/api/infer] job=%s | devices=%d | connections=%d",
+             job_id, len(topology.devices), len(topology.connections))
 
     try:
         G, id_to_idx = build_nx_graph(topology)
         N = G.number_of_nodes()
         flows = generate_flows(N, seed=42)
+        log.info("[/api/infer] topology: %d nodes, %d edges | generated %d flows",
+                 N, G.number_of_edges(), len(flows))
 
         # Try model inference, fall back to OSPF baseline
         try:
+            log.info("[/api/infer] attempting network-rl inference...")
             flow_results, edge_utils = inference_engine.infer(G, flows)
-        except (FileNotFoundError, ImportError):
-            print("[INFO] Model not available — using OSPF baseline")
+            log.info("[/api/infer] >>> using network-rl MODEL <<<")
+        except FileNotFoundError:
+            log.info("[/api/infer] no checkpoint found, using OSPF baseline")
             flow_results, edge_utils = _run_ospf_baseline(G, flows)
+            log.info("[/api/infer] >>> using OSPF BASELINE <<<")
+        except ImportError:
+            log.info("[/api/infer] torch not installed, using OSPF baseline")
+            flow_results, edge_utils = _run_ospf_baseline(G, flows)
+            log.info("[/api/infer] >>> using OSPF BASELINE <<<")
 
         result = _build_result(job_id, G, flow_results, edge_utils)
+        log.info("[/api/infer] done | %d flow results", len(result.flows))
 
     except Exception as e:
-        result = DeploymentResult(
-            job_id=job_id,
-            status="failed",
-            error=str(e),
-        )
+        log.exception("[/api/infer] FAILED: %s", e)
+        result = DeploymentResult(job_id=job_id, status="failed", error=str(e))
 
     jobs[job_id] = result
     return result
@@ -199,11 +215,7 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
 
 @app.post("/api/deploy")
 async def deploy(topology: TopologyJSON) -> DeploymentResult:
-    """Deploy topology to Mininet, run traffic, infer optimal routes.
-
-    Requires Docker and a running Mininet image.
-    For a lighter alternative, use /api/infer.
-    """
+    """Deploy topology to Mininet, run traffic, infer optimal routes."""
     if not docker_available:
         raise HTTPException(
             status_code=503,
@@ -213,16 +225,16 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
     global mn_manager
     from mininet.manager import MininetManager
     if mn_manager is None:
-        mn_manager = MininetManager()  # lazily init + pull image on first deploy
+        log.info("[/api/deploy] initializing MininetManager (may pull image)...")
+        mn_manager = MininetManager()
 
     job_id = uuid.uuid4().hex[:12]
+    log.info("=" * 50)
+    log.info("[/api/deploy] job=%s | devices=%d | connections=%d",
+             job_id, len(topology.devices), len(topology.connections))
 
     jobs[job_id] = DeploymentResult(
-        job_id=job_id,
-        status="running",
-        flows=[],
-        topology_nodes=[],
-        topology_edges=[],
+        job_id=job_id, status="running", flows=[], topology_nodes=[], topology_edges=[],
     )
 
     container_id = None
@@ -232,6 +244,8 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
         G, id_to_idx = build_nx_graph(topology)
         N = G.number_of_nodes()
         flows = generate_flows(N, seed=42)
+        log.info("[/api/deploy] topology: %d nodes, %d edges | %d flows",
+                 N, G.number_of_edges(), len(flows))
 
         mininet_flows = []
         for f in flows:
@@ -243,21 +257,25 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
                 "duration": f["duration"],
             })
 
+        log.info("[/api/deploy] creating Mininet container...")
         container_id, exec_id, tmpdir = mn_manager.deploy(topology, mininet_flows)
+        log.info("[/api/deploy] container=%s running, waiting for network...", container_id[:12])
         time.sleep(5)
 
+        log.info("[/api/deploy] running network-rl inference on live topology...")
         flow_results, edge_utils = inference_engine.infer(G, flows)
+        log.info("[/api/deploy] >>> used: Mininet DOCKER + network-rl MODEL <<<")
+
         result = _build_result(job_id, G, flow_results, edge_utils)
+        log.info("[/api/deploy] done | %d flow results", len(result.flows))
 
     except Exception as e:
-        result = DeploymentResult(
-            job_id=job_id,
-            status="failed",
-            error=str(e),
-        )
+        log.exception("[/api/deploy] FAILED: %s", e)
+        result = DeploymentResult(job_id=job_id, status="failed", error=str(e))
 
     finally:
         if container_id is not None:
+            log.info("[/api/deploy] cleaning up container=%s", container_id[:12])
             mn_manager.stop_and_remove(container_id)
         if tmpdir is not None:
             mn_manager.cleanup_tmpdir(tmpdir)
@@ -307,15 +325,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
         pass
 
     def on_deploy(topo, traffic):
+        log.info("[/api/chat] agent triggered deploy_and_analyze")
         G, _ = build_nx_graph(topo)
         try:
             flow_results, edge_utils = inference_engine.infer(G, traffic)
+            log.info("[/api/chat] >>> using model inference <<<")
         except (FileNotFoundError, ImportError):
             flow_results, edge_utils = _run_ospf_baseline(G, traffic)
+            log.info("[/api/chat] >>> using OSPF baseline <<<")
         return _build_result("agent", G, flow_results, edge_utils)
 
     try:
-        return agent.chat(
+        log.info("[/api/chat] message=%s...", request.message[:60])
+        result = agent.chat(
             request.message,
             topology=request.topology,
             on_topology=on_topology,
@@ -324,7 +346,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
             api_key=request.api_key,
             base_url=request.base_url,
         )
+        log.info("[/api/chat] reply=%s... action=%s", (result.reply or "")[:40], result.action)
+        return result
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        log.exception("[/api/chat] FAILED: %s", e)
         return ChatResponse(reply=f"Agent 调用失败: {e}")

@@ -7,9 +7,12 @@ Follows the inference interface from 模型项目/network-rl/api introduction.md
 from __future__ import annotations
 
 import sys
+import logging
 from pathlib import Path
 
 import networkx as nx
+
+log = logging.getLogger("ai-router.model")
 
 # Add network-rl to path so we can import xchirl.
 # The package root is 模型项目/network-rl/xchirl/ (where xchirl/ package lives).
@@ -106,13 +109,17 @@ class InferenceEngine:
                     f"Checkpoint not found at {self.ckpt_path}. "
                     "Train a model first or provide a valid checkpoint path."
                 )
-            import torch  # noqa: F811 — only needed when checkpoint exists
+            import torch
+            log.info("Loading network-rl checkpoint: %s", self.ckpt_path)
             self.policy = Policy(self.ckpt_path, device=self.device)
+            log.info("Model loaded successfully on %s", self.device)
 
     def infer(
         self, G: nx.Graph, flows: list[dict]
     ) -> tuple[list[dict], dict]:
         self._ensure_loaded()
+        log.info("Running inference: %d nodes, %d edges, %d flows",
+                 G.number_of_nodes(), G.number_of_edges(), len(flows))
 
         import torch
         import numpy as np

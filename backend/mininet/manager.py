@@ -8,6 +8,7 @@ import time
 import json
 import os
 import tempfile
+import logging
 from pathlib import Path
 
 import docker
@@ -16,6 +17,7 @@ from docker.errors import ImageNotFound, NotFound, DockerException
 from schemas.models import TopologyJSON
 from mininet.templates import generate_mininet_script, build_nx_graph
 
+log = logging.getLogger("ai-router.mininet")
 MININET_IMAGE = "mnknowles/mininet:latest"
 
 
@@ -32,15 +34,17 @@ def check_docker_available() -> bool:
 class MininetManager:
     def __init__(self):
         self.client = docker.from_env()
+        log.info("MininetManager initialized (Docker SDK connected)")
 
     def _ensure_image(self):
         """Pull Mininet image if not present. Called lazily on first deploy."""
         try:
             self.client.images.get(MININET_IMAGE)
+            log.info("Mininet image already present: %s", MININET_IMAGE)
         except ImageNotFound:
-            print(f"Pulling Mininet image {MININET_IMAGE}...")
+            log.info("Pulling Mininet image %s ...", MININET_IMAGE)
             self.client.images.pull(MININET_IMAGE)
-            print(f"Image {MININET_IMAGE} pulled successfully.")
+            log.info("Mininet image pulled successfully")
 
     def deploy(self, topology: TopologyJSON, flows: list[dict]) -> tuple[str, str, str]:
         """Deploy topology to a Mininet container. Returns (container_id, exec_id, tmpdir)."""
@@ -58,21 +62,23 @@ class MininetManager:
             f.write(script)
         with open(flows_path, "w") as f:
             json.dump(flows, f)
+        log.info("Generated Mininet script (%d bytes) + %d flows at %s",
+                 len(script), len(flows), tmpdir)
 
+        log.info("Creating container: %s (privileged)...", container_name)
         container = self.client.containers.run(
             MININET_IMAGE,
             name=container_name,
-            command="tail -f /dev/null",  # keep alive
-            volumes={
-                tmpdir: {"bind": "/tmp/topo", "mode": "rw"},
-            },
+            command="tail -f /dev/null",
+            volumes={tmpdir: {"bind": "/tmp/topo", "mode": "rw"}},
             environment={"FLOWS_FILE": "/tmp/topo/flows.json"},
-            privileged=True,  # Mininet needs network privileges
+            privileged=True,
             detach=True,
             remove=False,
         )
+        log.info("Container started: %s", container.id[:12])
 
-        # Execute the topology script in background
+        log.info("Executing Mininet topology script in container...")
         exec_result = self.client.api.exec_create(
             container.id,
             "python /tmp/topo/topo.py",
@@ -99,10 +105,12 @@ class MininetManager:
 
     def stop_and_remove(self, container_id: str):
         """Stop and remove a container."""
+        log.info("Stopping container %s...", container_id[:12])
         container = self.get_container(container_id)
         if container:
             container.stop(timeout=5)
             container.remove(force=True)
+            log.info("Container %s removed", container_id[:12])
 
     def cleanup_tmpdir(self, tmpdir: str):
         """Remove temporary directory."""
