@@ -17,23 +17,117 @@ from schemas.models import (
     ChatRequest,
     ChatResponse,
 )
-from mininet.manager import MininetManager
 from mininet.templates import build_nx_graph
 from traffic.generator import generate_flows
 from model.inference import InferenceEngine
 
 # Global state
-mn_manager: MininetManager | None = None
+mn_manager = None  # MininetManager — initialized only if Docker is available
 inference_engine: InferenceEngine | None = None
+docker_available = False
 jobs: dict[str, DeploymentResult] = {}
+
+
+def _build_result(job_id: str, G, flow_results: list[dict], edge_utils: dict) -> DeploymentResult:
+    """Build DeploymentResult from inference output."""
+    result_flows = []
+    for fr in flow_results:
+        result_flows.append(
+            FlowResult(
+                flow_id=fr["flow_id"],
+                src=fr["src"],
+                dst=fr["dst"],
+                bw_req=fr["bw_req"],
+                phi=fr["phi"],
+                selected_path=fr["selected_path"],
+                hops=fr["hops"],
+                max_link_utilization=fr["max_link_utilization"],
+                ospf_path=fr.get("ospf_path"),
+            )
+        )
+
+    topo_edges = []
+    for u, v, data in G.edges(data=True):
+        util = edge_utils.get((u, v), edge_utils.get((v, u), 0.0))
+        topo_edges.append({
+            "src": u,
+            "dst": v,
+            "bandwidth": data.get("bandwidth", 100.0),
+            "delay": data.get("delay", 5.0),
+            "utilization": round(util, 4),
+        })
+
+    return DeploymentResult(
+        job_id=job_id,
+        status="completed",
+        flows=result_flows,
+        topology_nodes=list(range(G.number_of_nodes())),
+        topology_edges=topo_edges,
+    )
+
+
+def _run_ospf_baseline(G, flows: list[dict]) -> tuple[list[dict], dict]:
+    """Run OSPF (hop-shortest path) baseline when no trained model is available."""
+    import networkx as nx
+
+    results = []
+    edge_utils = {}
+    # Initialize utilization
+    for u, v in G.edges():
+        edge_utils[(u, v)] = 0.0
+        edge_utils[(v, u)] = 0.0
+
+    for flow in flows:
+        src, dst = flow["src"], flow["dst"]
+        bw_req = flow["bw_req"]
+
+        try:
+            path = nx.shortest_path(G, src, dst, weight=None)
+        except nx.NetworkXNoPath:
+            path = []
+
+        # Update utilization along path
+        max_util = 0.0
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            cap = G[u][v].get("bandwidth", 100.0)
+            edge_utils[(u, v)] = edge_utils.get((u, v), 0.0) + bw_req / cap
+            edge_utils[(v, u)] = edge_utils.get((v, u), 0.0) + bw_req / cap
+            max_util = max(max_util, edge_utils[(u, v)])
+
+        results.append({
+            "flow_id": flow["flow_id"],
+            "src": src,
+            "dst": dst,
+            "bw_req": bw_req,
+            "phi": flow["phi"],
+            "selected_path": path,
+            "hops": max(len(path) - 1, 0),
+            "ospf_path": path,
+            "max_link_utilization": round(min(max_util, 1.0), 4),
+        })
+
+    return results, edge_utils
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global mn_manager, inference_engine
-    mn_manager = MininetManager()
+    global mn_manager, inference_engine, docker_available
+
+    # Initialize inference engine (always available)
     inference_engine = InferenceEngine()
+
+    # Initialize Mininet manager (optional — requires Docker)
+    try:
+        from mininet.manager import MininetManager
+        mn_manager = MininetManager()
+        docker_available = True
+    except Exception:
+        print("[WARN] Docker not available — /api/deploy will be disabled. Use /api/infer instead.")
+        docker_available = False
+
     yield
+
     # Cleanup on shutdown
     for job_id in list(jobs.keys()):
         if jobs[job_id].status == "running":
@@ -54,15 +148,64 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "docker": docker_available,
+        "model_loaded": inference_engine.policy is not None if inference_engine else False,
+    }
+
+
+@app.post("/api/infer")
+async def infer(topology: TopologyJSON) -> DeploymentResult:
+    """Infer optimal routes from topology — no Docker required.
+
+    Uses the network-rl model if a checkpoint is available,
+    otherwise falls back to OSPF (hop-shortest) baseline.
+    """
+    job_id = uuid.uuid4().hex[:12]
+
+    try:
+        G, id_to_idx = build_nx_graph(topology)
+        N = G.number_of_nodes()
+        flows = generate_flows(N, seed=42)
+
+        # Try model inference, fall back to OSPF baseline
+        try:
+            flow_results, edge_utils = inference_engine.infer(G, flows)
+        except FileNotFoundError:
+            print("[INFO] No model checkpoint — using OSPF baseline")
+            flow_results, edge_utils = _run_ospf_baseline(G, flows)
+
+        result = _build_result(job_id, G, flow_results, edge_utils)
+
+    except Exception as e:
+        result = DeploymentResult(
+            job_id=job_id,
+            status="failed",
+            error=str(e),
+        )
+
+    jobs[job_id] = result
+    return result
 
 
 @app.post("/api/deploy")
 async def deploy(topology: TopologyJSON) -> DeploymentResult:
-    """Deploy topology to Mininet, run traffic, infer optimal routes."""
+    """Deploy topology to Mininet, run traffic, infer optimal routes.
+
+    Requires Docker and a running Mininet image.
+    For a lighter alternative, use /api/infer.
+    """
+    if not docker_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Docker is not available. Use /api/infer for inference-only mode.",
+        )
+
+    from mininet.manager import MininetManager
+
     job_id = uuid.uuid4().hex[:12]
 
-    # Create initial job entry
     jobs[job_id] = DeploymentResult(
         job_id=job_id,
         status="running",
@@ -75,14 +218,10 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
     tmpdir = None
 
     try:
-        # 1. Convert topology to networkx
         G, id_to_idx = build_nx_graph(topology)
         N = G.number_of_nodes()
-
-        # 2. Generate traffic flows
         flows = generate_flows(N, seed=42)
 
-        # 3. Map flow src/dst from integer indices to Mininet hostnames
         mininet_flows = []
         for f in flows:
             mininet_flows.append({
@@ -93,51 +232,11 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
                 "duration": f["duration"],
             })
 
-        # 4. Deploy to Mininet
         container_id, exec_id, tmpdir = mn_manager.deploy(topology, mininet_flows)
+        time.sleep(5)
 
-        # 5. Wait for topology to be ready
-        time.sleep(5)  # give Mininet time to start
-
-        # 6. Run network-rl inference
         flow_results, edge_utils = inference_engine.infer(G, flows)
-
-        # 7. Build result
-        result_flows = []
-        for fr in flow_results:
-            result_flows.append(
-                FlowResult(
-                    flow_id=fr["flow_id"],
-                    src=fr["src"],
-                    dst=fr["dst"],
-                    bw_req=fr["bw_req"],
-                    phi=fr["phi"],
-                    selected_path=fr["selected_path"],
-                    hops=fr["hops"],
-                    max_link_utilization=fr["max_link_utilization"],
-                    ospf_path=fr.get("ospf_path"),
-                )
-            )
-
-        # 8. Build topology edges for frontend display
-        topo_edges = []
-        for u, v, data in G.edges(data=True):
-            util = edge_utils.get((u, v), edge_utils.get((v, u), 0.0))
-            topo_edges.append({
-                "src": u,
-                "dst": v,
-                "bandwidth": data.get("bandwidth", 100.0),
-                "delay": data.get("delay", 5.0),
-                "utilization": round(util, 4),
-            })
-
-        result = DeploymentResult(
-            job_id=job_id,
-            status="completed",
-            flows=result_flows,
-            topology_nodes=list(range(N)),
-            topology_edges=topo_edges,
-        )
+        result = _build_result(job_id, G, flow_results, edge_utils)
 
     except Exception as e:
         result = DeploymentResult(
@@ -147,7 +246,6 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
         )
 
     finally:
-        # Cleanup
         if container_id is not None:
             mn_manager.stop_and_remove(container_id)
         if tmpdir is not None:
@@ -171,9 +269,7 @@ async def remove_container(container_id: str):
 
 
 # ── Agent chat ────────────────────────────────────────────────────
-from agent.orchestrator import AgentOrchestrator
-
-agent: AgentOrchestrator | None = None
+agent = None  # AgentOrchestrator — initialized lazily when first used
 
 
 @app.post("/api/chat")
@@ -182,7 +278,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
     global agent, inference_engine
 
     if agent is None:
-        agent = AgentOrchestrator()
+        try:
+            from agent.orchestrator import AgentOrchestrator
+            agent = AgentOrchestrator()
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="Agent is not available. Install 'anthropic' package and set ANTHROPIC_API_KEY.",
+            )
 
     def on_topology(topo):
         pass  # topology is returned in ChatResponse, frontend loads it
@@ -191,37 +294,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
         pass  # returned in response
 
     def on_deploy(topo, traffic):
-        # Run the full pipeline synchronously for the agent
+        # Run inference-only pipeline (no Docker needed)
         G, _ = build_nx_graph(topo)
-        flow_results, edge_utils = inference_engine.infer(G, traffic)
+        try:
+            flow_results, edge_utils = inference_engine.infer(G, traffic)
+        except FileNotFoundError:
+            flow_results, edge_utils = _run_ospf_baseline(G, traffic)
 
-        result_flows = []
-        for fr in flow_results:
-            result_flows.append(FlowResult(
-                flow_id=fr["flow_id"], src=fr["src"], dst=fr["dst"],
-                bw_req=fr["bw_req"], phi=fr["phi"],
-                selected_path=fr["selected_path"], hops=fr["hops"],
-                max_link_utilization=fr["max_link_utilization"],
-                ospf_path=fr.get("ospf_path"),
-            ))
-
-        topo_edges = []
-        for u, v, data in G.edges(data=True):
-            util = edge_utils.get((u, v), edge_utils.get((v, u), 0.0))
-            topo_edges.append({
-                "src": u, "dst": v,
-                "bandwidth": data.get("bandwidth", 100.0),
-                "delay": data.get("delay", 5.0),
-                "utilization": round(util, 4),
-            })
-
-        return DeploymentResult(
-            job_id="agent",
-            status="completed",
-            flows=result_flows,
-            topology_nodes=list(range(G.number_of_nodes())),
-            topology_edges=topo_edges,
-        )
+        return _build_result("agent", G, flow_results, edge_utils)
 
     return agent.chat(
         request.message,
