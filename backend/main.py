@@ -297,31 +297,34 @@ async def chat(request: ChatRequest) -> ChatResponse:
         except ImportError:
             raise HTTPException(
                 status_code=503,
-                detail="Agent is not available. Install 'anthropic' package and set ANTHROPIC_API_KEY.",
+                detail="Agent is not available. Install 'openai' package and set API key in chat panel.",
             )
 
     def on_topology(topo):
-        pass  # topology is returned in ChatResponse, frontend loads it
+        pass
 
     def on_traffic(flows):
-        pass  # returned in response
+        pass
 
     def on_deploy(topo, traffic):
-        # Run inference-only pipeline (no Docker needed)
         G, _ = build_nx_graph(topo)
         try:
             flow_results, edge_utils = inference_engine.infer(G, traffic)
         except (FileNotFoundError, ImportError):
             flow_results, edge_utils = _run_ospf_baseline(G, traffic)
-
         return _build_result("agent", G, flow_results, edge_utils)
 
-    return agent.chat(
-        request.message,
-        topology=request.topology,
-        on_topology=on_topology,
-        on_traffic=on_traffic,
-        on_deploy=on_deploy,
-        api_key=request.api_key,
-        base_url=request.base_url,
-    )
+    try:
+        return agent.chat(
+            request.message,
+            topology=request.topology,
+            on_topology=on_topology,
+            on_traffic=on_traffic,
+            on_deploy=on_deploy,
+            api_key=request.api_key,
+            base_url=request.base_url,
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return ChatResponse(reply=f"Agent 调用失败: {e}")
