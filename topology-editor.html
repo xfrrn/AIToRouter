@@ -1179,17 +1179,25 @@
       var svgEl = document.getElementById('topo-svg');
       var g = svgEl.querySelector('g');
 
-      // Build device ID → integer node index mapping
-      var devIdToIdx = {};
-      devices.forEach(function(d, i) { devIdToIdx[d.id] = i; });
+      // device index → device ID
+      var idxToDevId = {};
+      devices.forEach(function(d, i) { idxToDevId[i] = d.id; });
 
-      // Build node index → position (center of device)
+      // device ID → device
+      var devMap = {};
+      devices.forEach(function(d) { devMap[d.id] = d; });
+
+      // connection lookup: "devIdA|devIdB" → connection
+      var connLookup = {};
+      connections.forEach(function(c) {
+        connLookup[c.from.devId + '|' + c.to.devId] = c;
+        connLookup[c.to.devId + '|' + c.from.devId] = c;
+      });
+
+      // node index → center position (for dots)
       var nodePos = {};
       devices.forEach(function(d, i) {
-        var idx = devIdToIdx[d.id];
-        if (idx !== undefined) {
-          nodePos[idx] = { x: d.x + DEV_W/2, y: d.y + DEV_H/2 };
-        }
+        nodePos[i] = { x: d.x + DEV_W/2, y: d.y + DEV_H/2 };
       });
 
       var flowsToShow = [];
@@ -1204,29 +1212,45 @@
         var path = f.selected_path;
         if (!path || path.length < 2) return;
 
-        var dStr = '';
-        for (var i = 0; i < path.length; i++) {
-          var pos = nodePos[path[i]];
-          if (!pos) continue;
-          if (i === 0) dStr += 'M' + pos.x + ',' + pos.y;
-          else dStr += ' L' + pos.x + ',' + pos.y;
+        // Draw each segment along existing connection bezier curves
+        for (var i = 0; i < path.length - 1; i++) {
+          var devIdA = idxToDevId[path[i]];
+          var devIdB = idxToDevId[path[i + 1]];
+          var conn = connLookup[devIdA + '|' + devIdB];
+          if (!conn) continue;
+
+          var devA = devMap[devIdA];
+          var devB = devMap[devIdB];
+          if (!devA || !devB) continue;
+
+          // Get port positions matching the connection direction
+          var fp, tp;
+          if (conn.from.devId === devIdA) {
+            fp = getPortPos(devA, conn.from.port);
+            tp = getPortPos(devB, conn.to.port);
+          } else {
+            fp = getPortPos(devA, conn.to.port);
+            tp = getPortPos(devB, conn.from.port);
+          }
+
+          var midX = (fp.x + tp.x) / 2;
+          var dSeg = 'M' + fp.x + ',' + fp.y +
+            ' C' + midX + ',' + fp.y + ' ' + midX + ',' + tp.y + ' ' + tp.x + ',' + tp.y;
+
+          var bgPath = document.createElementNS(NS, 'path');
+          bgPath.classList.add('path-highlight-bg');
+          bgPath.setAttribute('stroke', color);
+          bgPath.setAttribute('d', dSeg);
+          g.appendChild(bgPath);
+
+          var fgPath = document.createElementNS(NS, 'path');
+          fgPath.classList.add('path-highlight');
+          fgPath.setAttribute('stroke', color);
+          fgPath.setAttribute('d', dSeg);
+          g.appendChild(fgPath);
         }
 
-        // Background glow line
-        var bgPath = document.createElementNS(NS, 'path');
-        bgPath.classList.add('path-highlight-bg');
-        bgPath.setAttribute('stroke', color);
-        bgPath.setAttribute('d', dStr);
-        g.appendChild(bgPath);
-
-        // Foreground glow line
-        var fgPath = document.createElementNS(NS, 'path');
-        fgPath.classList.add('path-highlight');
-        fgPath.setAttribute('stroke', color);
-        fgPath.setAttribute('d', dStr);
-        g.appendChild(fgPath);
-
-        // Glow dots at each path node (except src/dst which are the device centers)
+        // Glow dots at relay nodes
         for (var j = 1; j < path.length - 1; j++) {
           var dotPos = nodePos[path[j]];
           if (!dotPos) continue;
