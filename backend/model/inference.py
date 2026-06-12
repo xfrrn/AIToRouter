@@ -9,8 +9,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import torch
-import numpy as np
 import networkx as nx
 
 # Add network-rl to path so we can import xchirl.
@@ -19,9 +17,22 @@ _NETWORK_RL_ROOT = Path(__file__).resolve().parents[2] / "模型项目" / "netwo
 if str(_NETWORK_RL_ROOT) not in sys.path:
     sys.path.insert(0, str(_NETWORK_RL_ROOT))
 
-from xchirl.utils.make_component_ppo import make_encoder
-from xchirl.modules.encoders import PathPooler
-from xchirl.modules.scorers import KPathScorer
+# Lazy imports — xchirl depends on torch/torchrl which may not be installed.
+# They are only needed when actually running inference.
+_make_encoder = None
+_PathPooler = None
+_KPathScorer = None
+
+
+def _ensure_xchirl():
+    global _make_encoder, _PathPooler, _KPathScorer
+    if _make_encoder is None:
+        from xchirl.utils.make_component_ppo import make_encoder
+        from xchirl.modules.encoders import PathPooler
+        from xchirl.modules.scorers import KPathScorer
+        _make_encoder = make_encoder
+        _PathPooler = PathPooler
+        _KPathScorer = KPathScorer
 
 # Normalization constants from api introduction.md
 DELAY_MU, DELAY_SIG = 10.5, 5.5
@@ -32,17 +43,20 @@ class Policy:
     """XCHiRL routing policy model (P4 mode, metrics dim=2)."""
 
     def __init__(self, ckpt_path: str, device: str = "cpu"):
+        import torch
+        _ensure_xchirl()
+
         data = torch.load(ckpt_path, weights_only=False, map_location=device)
         hp = data.get("hparams", {})
 
         hidden_dim = hp.get("hidden_dim", 256)
         kind = hp.get("encoder_kind", "film_gnn")
 
-        self.encoder = make_encoder(
+        self.encoder = _make_encoder(
             hidden_dim, hp.get("layer_num", 4), kind=kind, heads=hp.get("heads", 1)
         )
-        self.pooler = PathPooler(hidden_dim=hidden_dim)
-        self.scorer = KPathScorer(hidden_dim=hidden_dim)
+        self.pooler = _PathPooler(hidden_dim=hidden_dim)
+        self.scorer = _KPathScorer(hidden_dim=hidden_dim)
 
         sd = data["actor_state_dict"]
         self.encoder.load_state_dict(sd, strict=False)
@@ -61,13 +75,14 @@ class Policy:
         self._device = device
         return self
 
-    @torch.no_grad()
     def forward(self, x, index, features, metrics, paths, paths_mask):
         """Select best path. Returns (action: int, logits: Tensor[K])."""
-        h = self.encoder(x, index, features, metrics)
-        h = self.pooler(h, paths, paths_mask)
-        logits = self.scorer(h, metrics)
-        return int(logits.argmax(dim=-1).item()), logits
+        import torch
+        with torch.no_grad():
+            h = self.encoder(x, index, features, metrics)
+            h = self.pooler(h, paths, paths_mask)
+            logits = self.scorer(h, metrics)
+            return int(logits.argmax(dim=-1).item()), logits
 
 
 class InferenceEngine:
@@ -106,6 +121,9 @@ class InferenceEngine:
             (results, edge_utils) where results is a list of flow result dicts
             and edge_utils maps (u,v) -> utilization
         """
+        import torch
+        import numpy as np
+
         self._ensure_loaded()
 
         N = G.number_of_nodes()
