@@ -284,6 +284,8 @@
     <button class="tb-btn" id="btn-zoom-in" title="放大">+</button>
     <button class="tb-btn" id="btn-fit" title="适应画布">适应</button>
     <span style="flex:1;"></span>
+    <button class="tb-btn accent" id="btn-deploy" title="部署到 Mininet 并运行推理">&#9654; 部署</button>
+    <span class="sep"></span>
     <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
     <button class="tb-btn" id="btn-import" style="display:none;">导入</button>
     <input type="file" id="import-file" accept=".json" style="display:none;" />
@@ -875,6 +877,46 @@
       a.href = url; a.download = 'topology.json';
       a.click();
       URL.revokeObjectURL(url);
+    });
+
+    /* ─── deploy ───────────────────────────────────────────────── */
+    var API_BASE = 'http://localhost:8000';
+    var deployResult = null;
+
+    document.getElementById('btn-deploy').addEventListener('click', function() {
+      if (devices.length === 0) { alert('请先添加设备'); return; }
+
+      var btn = document.getElementById('btn-deploy');
+      btn.disabled = true;
+      btn.textContent = '部署中...';
+
+      // Build topology JSON with connection properties
+      var topo = {
+        devices: devices.map(function(d) { return { id: d.id, type: d.type, x: d.x, y: d.y, label: d.label, ip: d.ip }; }),
+        connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
+      };
+
+      fetch(API_BASE + '/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(topo)
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(result) {
+        deployResult = result;
+        btn.disabled = false;
+        btn.textContent = '部署';
+        if (result.status === 'completed') {
+          showResults(result);
+        } else {
+          alert('部署失败: ' + (result.error || '未知错误'));
+        }
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = '部署';
+        alert('请求失败: ' + err.message + '\n请确认后端已启动 (python backend/run.py)');
+      });
     });
 
     /* ─── init ────────────────────────────────────────────────────── */
