@@ -82,7 +82,7 @@ Agent 会生成拓扑并加载到编辑器中，后续可手动调整后部署�
 uv pip install docker
 
 # 拉取 Mininet 镜像
-docker pull mnknowles/mininet
+docker pull iwaseyusuke/mininet
 ```
 
 ### network-rl 模型推理

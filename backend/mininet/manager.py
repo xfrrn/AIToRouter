@@ -18,7 +18,7 @@ from schemas.models import TopologyJSON
 from mininet.templates import generate_mininet_script, build_nx_graph
 
 log = logging.getLogger("ai-router.mininet")
-MININET_IMAGE = "mnknowles/mininet:latest"
+MININET_IMAGE = "iwaseyusuke/mininet:latest"
 
 
 def check_docker_available() -> bool:
