@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+.zed/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Artifacts
+*.artifact.json
+
+# Dependencies (backend uses pyproject.toml + uv)
+backend/requirements.txt
+
+# Superpowers skills (auto-generated)
+.od-skills/
