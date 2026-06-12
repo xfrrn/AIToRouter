@@ -168,3 +168,65 @@ async def get_status(job_id: str) -> DeploymentResult:
 async def remove_container(container_id: str):
     mn_manager.stop_and_remove(container_id)
     return {"status": "removed", "container_id": container_id}
+
+
+# ── Agent chat ────────────────────────────────────────────────────
+from agent.orchestrator import AgentOrchestrator
+
+agent: AgentOrchestrator | None = None
+
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest) -> ChatResponse:
+    """Agent chat endpoint — natural language driven orchestration."""
+    global agent, inference_engine
+
+    if agent is None:
+        agent = AgentOrchestrator()
+
+    def on_topology(topo):
+        pass  # topology is returned in ChatResponse, frontend loads it
+
+    def on_traffic(flows):
+        pass  # returned in response
+
+    def on_deploy(topo, traffic):
+        # Run the full pipeline synchronously for the agent
+        G, _ = build_nx_graph(topo)
+        flow_results, edge_utils = inference_engine.infer(G, traffic)
+
+        result_flows = []
+        for fr in flow_results:
+            result_flows.append(FlowResult(
+                flow_id=fr["flow_id"], src=fr["src"], dst=fr["dst"],
+                bw_req=fr["bw_req"], phi=fr["phi"],
+                selected_path=fr["selected_path"], hops=fr["hops"],
+                max_link_utilization=fr["max_link_utilization"],
+                ospf_path=fr.get("ospf_path"),
+            ))
+
+        topo_edges = []
+        for u, v, data in G.edges(data=True):
+            util = edge_utils.get((u, v), edge_utils.get((v, u), 0.0))
+            topo_edges.append({
+                "src": u, "dst": v,
+                "bandwidth": data.get("bandwidth", 100.0),
+                "delay": data.get("delay", 5.0),
+                "utilization": round(util, 4),
+            })
+
+        return DeploymentResult(
+            job_id="agent",
+            status="completed",
+            flows=result_flows,
+            topology_nodes=list(range(G.number_of_nodes())),
+            topology_edges=topo_edges,
+        )
+
+    return agent.chat(
+        request.message,
+        topology=request.topology,
+        on_topology=on_topology,
+        on_traffic=on_traffic,
+        on_deploy=on_deploy,
+    )
