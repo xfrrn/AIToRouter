@@ -1,31 +1,33 @@
 #!/bin/bash
-# start.sh — Launch the AI Router platform
+# start.sh — Launch the AI Router platform using uv
 
 echo "=== AI Router Platform ==="
 echo ""
 
-# Check prerequisites
-if ! command -v python &>/dev/null; then
-    echo "ERROR: Python 3.12+ required"
+# Check uv
+if command -v uv &>/dev/null; then
+    echo "[uv] Using uv for dependency management"
+else
+    echo "ERROR: uv is required. Install it: https://docs.astral.sh/uv/getting-started/installation/"
     exit 1
 fi
 
-if ! command -v docker &>/dev/null; then
-    echo "WARNING: Docker not found. Mininet deployment will not work."
-    echo "         Install Docker to enable full pipeline."
+# Sync dependencies
+echo "[1/3] Syncing dependencies..."
+uv sync 2>/dev/null || uv pip install -e . 2>/dev/null || echo "  (sync skipped — running with existing env)"
+
+# Install network-rl (optional, for model inference)
+echo "[2/3] Checking network-rl package..."
+if [ -d "模型项目/network-rl" ]; then
+    uv pip install -e "模型项目/network-rl" 2>/dev/null || echo "  (network-rl install skipped — model inference requires torch deps)"
+else
+    echo "  (network-rl not found — model inference disabled, OSPF baseline available)"
 fi
 
-# Install backend dependencies
-echo "[1/3] Installing backend dependencies..."
-cd backend
-pip install -r requirements.txt -q 2>/dev/null
-cd ..
-
-# Install network-rl
-echo "[2/3] Installing network-rl package..."
-cd "模型项目/network-rl"
-pip install -e . -q 2>/dev/null || echo "  (network-rl editable install skipped — deps may need manual install)"
-cd ../..
+# Check Docker
+if ! command -v docker &>/dev/null; then
+    echo "  [WARN] Docker not found — /api/deploy disabled, use /api/infer instead"
+fi
 
 # Start backend
 echo "[3/3] Starting backend server..."
@@ -33,5 +35,9 @@ echo ""
 echo "  Backend:  http://localhost:8000"
 echo "  API docs: http://localhost:8000/docs"
 echo "  Frontend: open topology-editor.html in browser"
+echo "  Endpoints:"
+echo "    POST /api/infer  — lightweight inference (no Docker needed)"
+echo "    POST /api/deploy — full Mininet pipeline (requires Docker)"
+echo "    POST /api/chat   — AI Agent chat (requires ANTHROPIC_API_KEY)"
 echo ""
-cd backend && python run.py
+cd backend && uv run python run.py

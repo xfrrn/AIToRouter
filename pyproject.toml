@@ -1,0 +1,22 @@
+[project]
+name = "ai-router"
+version = "0.1.0"
+description = "AI Router — intelligent network topology routing optimization platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "docker>=7.1.0",
+    "networkx>=3.4",
+    "jinja2>=3.1",
+    "anthropic>=0.49.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "torch>=2.0",
+    "torchrl>=0.2",
+    "tensordict>=0.4",
+    "torch-geometric>=2.4",
+]
