@@ -312,58 +312,54 @@
 .result-table tr:hover td { background: var(--accent-soft); }
 .result-table tr.active-row td { background: var(--accent-soft); }
 .path-highlight {
-  stroke: var(--accent); stroke-width: 4;
+  stroke: var(--accent); stroke-width: 3;
   fill: none; pointer-events: none;
-  stroke-linecap: round;
+  stroke-linecap: round; stroke-linejoin: round;
+  filter: url(#glow);
 }
 .path-highlight-bg {
-  stroke: var(--accent); stroke-width: 8;
-  fill: none; pointer-events: none;
-  opacity: 0.15; stroke-linecap: round;
+  stroke: var(--accent); stroke-width: 2;
+  fill: none; pointer-events: none; opacity: 0.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.path-node-dot {
+  fill: var(--accent);
+  pointer-events: none;
+  filter: url(#glow);
 }
 
-/* ─── chat panel ────────────────────────────────────────────── */
-.chat-toggle {
-  position: fixed; bottom: 20px; right: 20px;
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  background: var(--accent); color: #fff;
-  border: none; font-size: 20px;
-  cursor: pointer; z-index: 200;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  display: grid; place-items: center;
-}
+/* ─── chat panel (right sidebar) ─────────────────────────────── */
 .chat-panel {
-  position: fixed; bottom: 80px; right: 20px;
-  width: 380px; height: 480px;
+  width: 340px; flex-shrink: 0;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-  display: none; flex-direction: column;
-  z-index: 200; overflow: hidden;
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
-.chat-panel.open { display: flex; }
+.chat-panel.collapsed { display: none; }
 .chat-header {
   padding: 12px var(--gap-md);
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: var(--fs-sm);
-  font-weight: 600;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+  letter-spacing: 0.05em; text-transform: uppercase;
   display: flex; justify-content: space-between; align-items: center;
 }
+.chat-header span { color: var(--muted); }
 .chat-messages {
   flex: 1; overflow-y: auto; padding: var(--gap-md);
   display: flex; flex-direction: column; gap: 10px;
+  min-height: 0;
 }
 .chat-msg {
-  max-width: 85%; padding: 8px 12px;
+  max-width: 100%; padding: 8px 12px;
   border-radius: var(--radius);
   font-size: var(--fs-sm); line-height: 1.5;
-  white-space: pre-wrap;
+  white-space: pre-wrap; word-break: break-word;
 }
 .chat-msg.user {
   align-self: flex-end;
   background: var(--accent); color: #fff;
+  max-width: 85%;
 }
 .chat-msg.agent {
   align-self: flex-start;
@@ -372,6 +368,7 @@
 .chat-input-wrap {
   display: flex; padding: var(--gap);
   border-top: 1px solid var(--border); gap: var(--gap);
+  flex-shrink: 0;
 }
 .chat-input-wrap input {
   flex: 1; padding: 8px 10px;
@@ -382,7 +379,7 @@
 .chat-input-wrap button {
   padding: 8px 14px; border-radius: var(--radius);
   background: var(--accent); color: #fff; border: none;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-sm); cursor: pointer;
 }
 .chat-settings .prop-group label {
   display: block;
@@ -411,6 +408,8 @@
     <button class="tb-btn" id="btn-zoom-in" title="放大">+</button>
     <button class="tb-btn" id="btn-fit" title="适应画布">适应</button>
     <span style="flex:1;"></span>
+    <button class="tb-btn" id="btn-chat-toggle" title="显示/隐藏 AI 助手">&#9991; AI 助手</button>
+    <span class="sep"></span>
     <button class="tb-btn accent" id="btn-deploy" title="部署到 Mininet 并运行推理">&#9654; 部署</button>
     <span class="sep"></span>
     <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
@@ -430,7 +429,19 @@
 
     <!-- canvas -->
     <div class="canvas-wrap" id="canvas-wrap">
-      <svg id="topo-svg"></svg>
+      <svg id="topo-svg">
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur1" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur2" />
+            <feMerge>
+              <feMergeNode in="blur2" />
+              <feMergeNode in="blur1" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+      </svg>
     </div>
 
     <!-- properties panel -->
@@ -441,6 +452,37 @@
       </div>
       <div class="props-body" id="props-body">
         <p class="props-empty">选择一个设备查看属性</p>
+      </div>
+    </aside>
+
+    <!-- chat panel -->
+    <aside class="chat-panel" id="chat-panel">
+      <div class="chat-header">
+        <span>AI 助手</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="tb-btn" id="chat-settings-btn" onclick="toggleChatSettings()" title="API 设置" style="border:none;padding:2px 6px;">&#9881;</button>
+        </div>
+      </div>
+      <div class="chat-settings" id="chat-settings" style="display:none;">
+        <div style="padding:8px var(--gap);border-bottom:1px solid var(--border);">
+          <div class="prop-group">
+            <label>API Key</label>
+            <input id="chat-api-key" type="password" placeholder="sk-..." onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
+          </div>
+          <div class="prop-group" style="margin-top:6px;">
+            <label>Base URL (可选)</label>
+            <input id="chat-base-url" type="text" placeholder="https://api.openai.com/v1" onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
+          </div>
+        </div>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-msg agent">你好！我是网络拓扑助手。可以用自然语言描述你想要的网络，我会帮你生成拓扑、配置流量并分析路由优化结果。
+
+试试说："两台LB，三台App服务器，两台数据库主从，加防火墙"</div>
+      </div>
+      <div class="chat-input-wrap">
+        <input id="chat-input" placeholder="描述你的网络需求..." onkeydown="if(event.key==='Enter')sendChat()" />
+        <button onclick="sendChat()">发送</button>
       </div>
     </aside>
   </div>
@@ -1162,10 +1204,6 @@
         var path = f.selected_path;
         if (!path || path.length < 2) return;
 
-        // Draw background glow
-        var bgPath = document.createElementNS(NS, 'path');
-        bgPath.classList.add('path-highlight-bg');
-        bgPath.setAttribute('stroke', color);
         var dStr = '';
         for (var i = 0; i < path.length; i++) {
           var pos = nodePos[path[i]];
@@ -1173,15 +1211,33 @@
           if (i === 0) dStr += 'M' + pos.x + ',' + pos.y;
           else dStr += ' L' + pos.x + ',' + pos.y;
         }
+
+        // Background glow line
+        var bgPath = document.createElementNS(NS, 'path');
+        bgPath.classList.add('path-highlight-bg');
+        bgPath.setAttribute('stroke', color);
         bgPath.setAttribute('d', dStr);
         g.appendChild(bgPath);
 
-        // Draw foreground line
+        // Foreground glow line
         var fgPath = document.createElementNS(NS, 'path');
         fgPath.classList.add('path-highlight');
         fgPath.setAttribute('stroke', color);
         fgPath.setAttribute('d', dStr);
         g.appendChild(fgPath);
+
+        // Glow dots at each path node (except src/dst which are the device centers)
+        for (var j = 1; j < path.length - 1; j++) {
+          var dotPos = nodePos[path[j]];
+          if (!dotPos) continue;
+          var dot = document.createElementNS(NS, 'circle');
+          dot.classList.add('path-node-dot');
+          dot.setAttribute('cx', dotPos.x);
+          dot.setAttribute('cy', dotPos.y);
+          dot.setAttribute('r', '4');
+          dot.setAttribute('fill', color);
+          g.appendChild(dot);
+        }
       });
     }
 
@@ -1192,9 +1248,6 @@
     }
 
     /* ─── chat ──────────────────────────────────────────────────── */
-    var chatOpen = false;
-
-    // Load saved settings
     function loadChatSettings() {
       try {
         var saved = JSON.parse(localStorage.getItem('ai-router-chat-settings') || '{}');
@@ -1211,10 +1264,10 @@
       localStorage.setItem('ai-router-chat-settings', JSON.stringify(settings));
     }
 
-    function toggleChat() {
-      chatOpen = !chatOpen;
-      document.getElementById('chat-panel').classList.toggle('open', chatOpen);
-      if (chatOpen) loadChatSettings();
+    function toggleChatPanel() {
+      var panel = document.getElementById('chat-panel');
+      panel.classList.toggle('collapsed');
+      if (!panel.classList.contains('collapsed')) loadChatSettings();
     }
 
     function toggleChatSettings() {
@@ -1222,6 +1275,11 @@
       el.style.display = el.style.display === 'none' ? 'block' : 'none';
       if (el.style.display === 'block') loadChatSettings();
     }
+
+    document.getElementById('btn-chat-toggle').addEventListener('click', toggleChatPanel);
+
+    // Load settings on page load
+    loadChatSettings();
 
     function addChatMessage(role, text) {
       var msgs = document.getElementById('chat-messages');
@@ -1327,38 +1385,5 @@
 
     init();
   </script>
-<!-- chat panel -->
-<button class="chat-toggle" id="chat-toggle" onclick="toggleChat()" title="AI 助手">&#9991;</button>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <span>AI 网络助手</span>
-    <div style="display:flex;align-items:center;gap:6px;">
-      <button class="tb-btn" id="chat-settings-btn" onclick="toggleChatSettings()" title="API 设置" style="border:none;padding:2px 6px;">&#9881;</button>
-      <button class="tb-btn" onclick="toggleChat()" style="border:none;padding:2px 6px;">&#10005;</button>
-    </div>
-  </div>
-  <div class="chat-settings" id="chat-settings" style="display:none;">
-    <div style="padding:8px var(--gap);border-bottom:1px solid var(--border);">
-      <div class="prop-group">
-        <label>API Key</label>
-        <input id="chat-api-key" type="password" placeholder="sk-..." onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
-      </div>
-      <div class="prop-group" style="margin-top:6px;">
-        <label>Base URL (可选)</label>
-        <input id="chat-base-url" type="text" placeholder="https://api.openai.com/v1" onchange="saveChatSettings()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font:inherit;font-size:var(--fs-sm);background:var(--bg);color:var(--fg);" />
-      </div>
-    </div>
-  </div>
-  <div class="chat-messages" id="chat-messages">
-    <div class="chat-msg agent">你好！我是网络拓扑助手。你可以用自然语言描述你想要的网络，我会帮你生成拓扑、配置流量并分析路由优化结果。
-
-试试说："帮我搭建一个三层电商架构，两台LB，三台App服务器，两台数据库主从"</div>
-  </div>
-  <div class="chat-input-wrap">
-    <input id="chat-input" placeholder="描述你的网络需求..." onkeydown="if(event.key==='Enter')sendChat()" />
-    <button onclick="sendChat()">发送</button>
-  </div>
-</div>
-
 </body>
 </html>
