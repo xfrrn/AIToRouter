@@ -264,6 +264,64 @@
       .toolbar .brand { display: none; }
       .toolbar .sep:first-of-type { display: none; }
     }
+/* ─── result panel ──────────────────────────────────────────── */
+.result-panel {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 200px;
+  background: var(--surface);
+  border-top: 2px solid var(--accent);
+  display: none; flex-direction: column;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+}
+.result-panel.open { display: flex; }
+.result-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px var(--gap-md);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.05em;
+}
+.result-header .flow-selector {
+  display: flex; align-items: center; gap: 8px;
+}
+.result-header select {
+  padding: 3px 6px; border: 1px solid var(--border);
+  border-radius: var(--radius); font: inherit; font-size: var(--fs-sm);
+  background: var(--bg); color: var(--fg);
+}
+.result-table-wrap {
+  flex: 1; overflow: auto; padding: 4px var(--gap-md);
+}
+.result-table {
+  width: 100%; border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.result-table th {
+  text-align: left; padding: 6px 8px;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+  color: var(--muted); letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface);
+}
+.result-table td {
+  padding: 5px 8px; border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+}
+.result-table tr:hover td { background: var(--accent-soft); }
+.result-table tr.active-row td { background: var(--accent-soft); }
+.path-highlight {
+  stroke: var(--accent); stroke-width: 4;
+  fill: none; pointer-events: none;
+  stroke-linecap: round;
+}
+.path-highlight-bg {
+  stroke: var(--accent); stroke-width: 8;
+  fill: none; pointer-events: none;
+  opacity: 0.15; stroke-linecap: round;
+}
+
   </style>
 </head>
 <body>
@@ -325,6 +383,31 @@
     <span id="status-conn">连线: 0</span>
     <span style="flex:1;"></span>
     <span id="status-pos"></span>
+  </div>
+
+  <!-- result panel -->
+  <div class="result-panel" id="result-panel">
+    <div class="result-header">
+      <span>推理结果 · <span id="result-flow-count">0</span> 条流</span>
+      <div class="flow-selector">
+        <label for="flow-select" style="color:var(--muted);">查看流:</label>
+        <select id="flow-select" onchange="highlightFlow(this.value)">
+          <option value="">全部</option>
+        </select>
+        <button class="tb-btn" onclick="closeResults()">&#10005;</button>
+      </div>
+    </div>
+    <div class="result-table-wrap">
+      <table class="result-table">
+        <thead>
+          <tr>
+            <th>流 ID</th><th>src → dst</th><th>bw (Mbps)</th><th>φ</th>
+            <th>模型路径</th><th>跳数</th><th>利用率</th><th>OSPF路径</th>
+          </tr>
+        </thead>
+        <tbody id="result-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <script>
@@ -918,6 +1001,126 @@
         alert('请求失败: ' + err.message + '\n请确认后端已启动 (python backend/run.py)');
       });
     });
+
+    /* ─── results display ──────────────────────────────────────── */
+    var PATH_COLORS = ['#4C9AFF','#36B37E','#FF5630','#6554C0','#FF8B00','#00B8D9','#8777D9','#FFC400'];
+
+    function showResults(result) {
+      deployResult = result;
+      var panel = document.getElementById('result-panel');
+      var tbody = document.getElementById('result-tbody');
+      var select = document.getElementById('flow-select');
+      var countEl = document.getElementById('result-flow-count');
+
+      countEl.textContent = result.flows.length;
+
+      // Populate flow selector
+      select.innerHTML = '<option value="">全部</option>';
+      result.flows.forEach(function(f, i) {
+        select.innerHTML += '<option value="' + i + '">流 ' + f.flow_id + ' (' + f.src + '→' + f.dst + ')</option>';
+      });
+
+      // Populate table
+      tbody.innerHTML = '';
+      result.flows.forEach(function(f, i) {
+        var pathStr = f.selected_path.join(' → ');
+        var ospfStr = f.ospf_path ? f.ospf_path.join(' → ') : '-';
+        var tr = document.createElement('tr');
+        tr.id = 'flow-row-' + i;
+        tr.innerHTML =
+          '<td>' + f.flow_id + '</td>' +
+          '<td>' + f.src + ' → ' + f.dst + '</td>' +
+          '<td>' + f.bw_req + '</td>' +
+          '<td>' + f.phi + '</td>' +
+          '<td>' + pathStr + '</td>' +
+          '<td>' + f.hops + '</td>' +
+          '<td>' + (f.max_link_utilization * 100).toFixed(1) + '%</td>' +
+          '<td>' + ospfStr + '</td>';
+        tr.addEventListener('click', function() { highlightFlow(i); });
+        tbody.appendChild(tr);
+      });
+
+      panel.classList.add('open');
+      highlightFlow(''); // show all paths initially
+    }
+
+    function highlightFlow(flowIdx) {
+      // Update table row highlighting
+      var rows = document.querySelectorAll('#result-tbody tr');
+      rows.forEach(function(r) { r.classList.remove('active-row'); });
+
+      if (flowIdx === '' || flowIdx === undefined) {
+        rows.forEach(function(r) { r.classList.add('active-row'); });
+      } else {
+        var row = document.getElementById('flow-row-' + flowIdx);
+        if (row) row.classList.add('active-row');
+      }
+
+      // Redraw canvas with path highlights
+      renderAll();
+      drawPathHighlights(flowIdx);
+    }
+
+    function drawPathHighlights(flowIdx) {
+      if (!deployResult || !deployResult.flows) return;
+
+      var NS = 'http://www.w3.org/2000/svg';
+      var svgEl = document.getElementById('topo-svg');
+      var g = svgEl.querySelector('g');
+
+      // Build device ID → integer node index mapping
+      var devIdToIdx = {};
+      devices.forEach(function(d, i) { devIdToIdx[d.id] = i; });
+
+      // Build node index → position (center of device)
+      var nodePos = {};
+      devices.forEach(function(d, i) {
+        var idx = devIdToIdx[d.id];
+        if (idx !== undefined) {
+          nodePos[idx] = { x: d.x + DEV_W/2, y: d.y + DEV_H/2 };
+        }
+      });
+
+      var flowsToShow = [];
+      if (flowIdx === '' || flowIdx === undefined) {
+        flowsToShow = deployResult.flows;
+      } else {
+        flowsToShow = [deployResult.flows[parseInt(flowIdx)]];
+      }
+
+      flowsToShow.forEach(function(f, fi) {
+        var color = PATH_COLORS[fi % PATH_COLORS.length];
+        var path = f.selected_path;
+        if (!path || path.length < 2) return;
+
+        // Draw background glow
+        var bgPath = document.createElementNS(NS, 'path');
+        bgPath.classList.add('path-highlight-bg');
+        bgPath.setAttribute('stroke', color);
+        var dStr = '';
+        for (var i = 0; i < path.length; i++) {
+          var pos = nodePos[path[i]];
+          if (!pos) continue;
+          if (i === 0) dStr += 'M' + pos.x + ',' + pos.y;
+          else dStr += ' L' + pos.x + ',' + pos.y;
+        }
+        bgPath.setAttribute('d', dStr);
+        g.appendChild(bgPath);
+
+        // Draw foreground line
+        var fgPath = document.createElementNS(NS, 'path');
+        fgPath.classList.add('path-highlight');
+        fgPath.setAttribute('stroke', color);
+        fgPath.setAttribute('d', dStr);
+        g.appendChild(fgPath);
+      });
+    }
+
+    function closeResults() {
+      deployResult = null;
+      document.getElementById('result-panel').classList.remove('open');
+      renderAll();
+    }
 
     /* ─── init ────────────────────────────────────────────────────── */
     function init() {
