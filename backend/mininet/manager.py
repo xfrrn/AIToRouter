@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 import docker
-from docker.errors import ImageNotFound, NotFound
+from docker.errors import ImageNotFound, NotFound, DockerException
 
 from schemas.models import TopologyJSON
 from mininet.templates import generate_mininet_script, build_nx_graph
@@ -19,21 +19,33 @@ from mininet.templates import generate_mininet_script, build_nx_graph
 MININET_IMAGE = "mnknowles/mininet:latest"
 
 
+def check_docker_available() -> bool:
+    """Quick check if Docker is reachable — does NOT pull any images."""
+    try:
+        client = docker.from_env()
+        client.ping()
+        return True
+    except Exception:
+        return False
+
+
 class MininetManager:
     def __init__(self):
         self.client = docker.from_env()
-        self._ensure_image()
 
     def _ensure_image(self):
-        """Pull Mininet image if not present."""
+        """Pull Mininet image if not present. Called lazily on first deploy."""
         try:
             self.client.images.get(MININET_IMAGE)
         except ImageNotFound:
             print(f"Pulling Mininet image {MININET_IMAGE}...")
             self.client.images.pull(MININET_IMAGE)
+            print(f"Image {MININET_IMAGE} pulled successfully.")
 
     def deploy(self, topology: TopologyJSON, flows: list[dict]) -> tuple[str, str, str]:
         """Deploy topology to a Mininet container. Returns (container_id, exec_id, tmpdir)."""
+        self._ensure_image()  # pull on first use, not at startup
+
         container_name = f"mininet-{uuid.uuid4().hex[:8]}"
         script = generate_mininet_script(topology)
 

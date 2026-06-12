@@ -117,14 +117,13 @@ async def lifespan(app: FastAPI):
     # Initialize inference engine (always available)
     inference_engine = InferenceEngine()
 
-    # Initialize Mininet manager (optional — requires Docker)
-    try:
-        from mininet.manager import MininetManager
-        mn_manager = MininetManager()
-        docker_available = True
-    except Exception:
-        print("[WARN] Docker not available — /api/deploy will be disabled. Use /api/infer instead.")
-        docker_available = False
+    # Check Docker availability (lightweight — no image pull)
+    from mininet.manager import check_docker_available
+    docker_available = check_docker_available()
+    if docker_available:
+        print("[OK] Docker is available — /api/deploy enabled.")
+    else:
+        print("[WARN] Docker not available — /api/deploy disabled. Use /api/infer.")
 
     yield
 
@@ -202,7 +201,10 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
             detail="Docker is not available. Use /api/infer for inference-only mode.",
         )
 
+    global mn_manager
     from mininet.manager import MininetManager
+    if mn_manager is None:
+        mn_manager = MininetManager()  # lazily init + pull image on first deploy
 
     job_id = uuid.uuid4().hex[:12]
 
@@ -264,6 +266,8 @@ async def get_status(job_id: str) -> DeploymentResult:
 
 @app.delete("/api/containers/{container_id}")
 async def remove_container(container_id: str):
+    if mn_manager is None:
+        raise HTTPException(status_code=503, detail="Docker not available")
     mn_manager.stop_and_remove(container_id)
     return {"status": "removed", "container_id": container_id}
 
