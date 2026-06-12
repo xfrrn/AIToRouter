@@ -1,0 +1,921 @@
+
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>网络拓扑编辑器 · TopoBuilder</title>
+  <style>
+    /* ─── tokens — Tech/Utility direction ──────────────────────────── */
+    :root {
+      --bg:       oklch(98% 0.005 250);
+      --surface:  oklch(100% 0 0);
+      --fg:       oklch(22% 0.02 240);
+      --muted:    oklch(50% 0.018 240);
+      --border:   oklch(90% 0.008 240);
+      --accent:   oklch(58% 0.16 145);
+
+      --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+      --danger:      oklch(54% 0.22 22);
+      --warn:        oklch(62% 0.16 85);
+      --success:     oklch(56% 0.16 155);
+
+      --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+      --fs-xs: 11px; --fs-sm: 12px; --fs-body: 13px; --fs-lg: 15px;
+      --radius: 6px; --radius-lg: 10px;
+      --gap: 8px; --gap-md: 16px; --gap-lg: 24px;
+      --sidebar-w: 220px; --toolbar-h: 44px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; height: 100%; }
+    body {
+      margin: 0; height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+    button { font: inherit; cursor: pointer; }
+    input, select { font: inherit; }
+
+    /* ─── toolbar ─────────────────────────────────────────────────── */
+    .toolbar {
+      height: var(--toolbar-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 var(--gap-md); gap: var(--gap);
+      flex-shrink: 0; z-index: 10;
+    }
+    .toolbar .brand {
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--fg);
+      margin-right: var(--gap-lg);
+    }
+    .toolbar .sep {
+      width: 1px; height: 20px;
+      background: var(--border);
+      margin: 0 var(--gap);
+    }
+    .tb-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--fg);
+      font-size: var(--fs-sm);
+      transition: background 0.1s;
+    }
+    .tb-btn:hover { background: var(--accent-soft); }
+    .tb-btn:active { transform: translateY(1px); }
+    .tb-btn.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tb-btn.accent:hover { background: color-mix(in oklch, var(--accent) 88%, black); }
+    .tb-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .tb-btn:disabled { opacity: 0.35; pointer-events: none; }
+    .zoom-label {
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      min-width: 42px; text-align: center;
+    }
+
+    /* ─── main layout ─────────────────────────────────────────────── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ─── sidebar (device palette) ────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w); flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px var(--gap-md);
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .device-list {
+      flex: 1; overflow-y: auto;
+      padding: var(--gap);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .device-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: grab;
+      transition: background 0.1s, border-color 0.1s;
+      font-size: var(--fs-sm);
+    }
+    .device-item:hover { background: var(--accent-soft); border-color: var(--accent); }
+    .device-item:active { cursor: grabbing; }
+    .device-item .dev-icon {
+      width: 32px; height: 32px;
+      display: grid; place-items: center;
+      border-radius: var(--radius);
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    /* ─── canvas ──────────────────────────────────────────────────── */
+    .canvas-wrap {
+      flex: 1; overflow: hidden;
+      background:
+        radial-gradient(circle, var(--border) 1px, transparent 1px);
+      background-size: 20px 20px;
+      background-color: var(--bg);
+      position: relative;
+    }
+    .canvas-wrap svg {
+      width: 100%; height: 100%;
+      display: block;
+    }
+    .canvas-wrap.panning { cursor: grabbing; }
+
+    /* ─── properties panel ────────────────────────────────────────── */
+    .props-panel {
+      width: 240px; flex-shrink: 0;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .props-header {
+      padding: 12px var(--gap-md);
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .props-body {
+      flex: 1; overflow-y: auto;
+      padding: var(--gap-md);
+    }
+    .props-empty {
+      color: var(--muted);
+      font-size: var(--fs-sm);
+      text-align: center;
+      padding-top: 48px;
+    }
+    .prop-group { margin-bottom: var(--gap-md); }
+    .prop-group label {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .prop-group input, .prop-group select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--fg);
+      font-size: var(--fs-sm);
+    }
+    .prop-group input:focus, .prop-group select:focus {
+      outline: 2px solid var(--accent-soft);
+      border-color: var(--accent);
+    }
+
+    /* ─── SVG device styles ───────────────────────────────────────── */
+    .dev-group { cursor: grab; }
+    .dev-group.dragging { cursor: grabbing; opacity: 0.85; }
+    .dev-group.selected .dev-body { stroke: var(--accent); stroke-width: 2.5; }
+    .dev-body {
+      stroke: var(--border); stroke-width: 1.5;
+      transition: stroke 0.15s, stroke-width 0.15s;
+    }
+    .dev-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      fill: var(--fg);
+      text-anchor: middle;
+      pointer-events: none;
+    }
+    .dev-port {
+      fill: var(--surface);
+      stroke: var(--muted);
+      stroke-width: 1.2;
+      cursor: crosshair;
+      transition: fill 0.1s;
+    }
+    .dev-port:hover { fill: var(--accent); stroke: var(--accent); }
+    .conn-line {
+      stroke: var(--muted);
+      stroke-width: 2;
+      fill: none;
+      pointer-events: stroke;
+      cursor: pointer;
+      transition: stroke 0.1s;
+    }
+    .conn-line:hover { stroke: var(--danger); stroke-width: 3; }
+    .conn-line.selected-line { stroke: var(--accent); stroke-width: 3; }
+
+    /* ─── status bar ──────────────────────────────────────────────── */
+    .statusbar {
+      height: 28px; flex-shrink: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 var(--gap-md);
+      font-family: var(--font-mono);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      gap: var(--gap-lg);
+    }
+
+    /* ─── responsive ──────────────────────────────────────────────── */
+    @media (max-width: 920px) {
+      .sidebar { width: 56px; }
+      .sidebar .device-item span { display: none; }
+      .sidebar-header { text-align: center; padding: 12px 4px; font-size: 10px; }
+      .device-item { justify-content: center; padding: 8px 4px; }
+      .device-item .dev-icon { width: 28px; height: 28px; font-size: 14px; }
+      .props-panel { display: none; }
+    }
+    @media (max-width: 640px) {
+      .toolbar .brand { display: none; }
+      .toolbar .sep:first-of-type { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- toolbar -->
+  <div class="toolbar">
+    <span class="brand">TopoBuilder</span>
+    <span class="sep"></span>
+    <button class="tb-btn accent" id="btn-select" title="选择模式 (S)">&#8627; 选择</button>
+    <button class="tb-btn" id="btn-connect" title="连线模式 (C)">&#8212; 连线</button>
+    <span class="sep"></span>
+    <button class="tb-btn" id="btn-undo" disabled title="撤销 (Ctrl+Z)">&#8630;</button>
+    <button class="tb-btn" id="btn-redo" disabled title="重做 (Ctrl+Y)">&#8631;</button>
+    <span class="sep"></span>
+    <button class="tb-btn danger" id="btn-delete" disabled title="删除选中 (Del)">&#10005; 删除</button>
+    <span class="sep"></span>
+    <button class="tb-btn" id="btn-zoom-out" title="缩小">&#8722;</button>
+    <span class="zoom-label" id="zoom-label">100%</span>
+    <button class="tb-btn" id="btn-zoom-in" title="放大">+</button>
+    <button class="tb-btn" id="btn-fit" title="适应画布">适应</button>
+    <span style="flex:1;"></span>
+    <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
+    <button class="tb-btn" id="btn-import" style="display:none;">导入</button>
+    <input type="file" id="import-file" accept=".json" style="display:none;" />
+  </div>
+
+  <!-- main area -->
+  <div class="main">
+    <!-- device palette -->
+    <aside class="sidebar">
+      <div class="sidebar-header">设备面板</div>
+      <div class="device-list" id="device-list">
+        <!-- populated by JS -->
+      </div>
+    </aside>
+
+    <!-- canvas -->
+    <div class="canvas-wrap" id="canvas-wrap">
+      <svg id="topo-svg"></svg>
+    </div>
+
+    <!-- properties panel -->
+    <aside class="props-panel">
+      <div class="props-header">
+        <span>属性</span>
+        <span id="props-device-type" style="color:var(--muted);"></span>
+      </div>
+      <div class="props-body" id="props-body">
+        <p class="props-empty">选择一个设备查看属性</p>
+      </div>
+    </aside>
+  </div>
+
+  <!-- status bar -->
+  <div class="statusbar">
+    <span id="status-mode">模式: 选择</span>
+    <span id="status-count">设备: 0</span>
+    <span id="status-conn">连线: 0</span>
+    <span style="flex:1;"></span>
+    <span id="status-pos"></span>
+  </div>
+
+  <script>
+    /* ─── device palette definitions ──────────────────────────────── */
+    const DEVICE_TYPES = [
+      { id: 'router',      label: '路由器',   icon: '⌽', color: '#4C9AFF' },
+      { id: 'switch',      label: '交换机',   icon: '⇅', color: '#6554C0' },
+      { id: 'firewall',    label: '防火墙',   icon: '⛨', color: '#FF5630' },
+      { id: 'server',      label: '服务器',   icon: '☁', color: '#36B37E' },
+      { id: 'laptop',      label: '终端',     icon: '⌣', color: '#FF8B00' },
+      { id: 'database',    label: '数据库',   icon: '◉', color: '#00B8D9' },
+      { id: 'lb',          label: '负载均衡', icon: '☷', color: '#8777D9' },
+      { id: 'cloud',       label: '云服务',   icon: '☁', color: '#2684FF' },
+      { id: 'wifi',        label: '无线AP',   icon: '⦀', color: '#FFC400' },
+      { id: 'printer',     label: '打印机',   icon: '⎙', color: '#97A0AF' },
+    ];
+
+    const DEV_W = 100, DEV_H = 64;
+    const PORT_R = 5;
+    const PORT_POSITIONS = ['top','right','bottom','left'];
+
+    /* ─── state ───────────────────────────────────────────────────── */
+    let devices = [];
+    let connections = [];
+    let nextId = 1;
+    let selectedId = null;
+    let selectedLineId = null;
+    let mode = 'select';
+    let connectFrom = null;
+    let zoom = 1;
+    let panX = 0, panY = 0;
+    let dragTarget = null;
+    let dragOffsetX = 0, dragOffsetY = 0;
+    let isPanning = false;
+    let panStart = null;
+    let undoStack = [], redoStack = [];
+
+    const svg = document.getElementById('topo-svg');
+    const canvasWrap = document.getElementById('canvas-wrap');
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    const TOKENS = {
+      surface: () => cssVar('--surface'),
+      muted: () => cssVar('--muted'),
+      accent: () => cssVar('--accent'),
+      danger: () => cssVar('--danger'),
+    };
+
+    /* ─── palette ─────────────────────────────────────────────────── */
+    function buildPalette() {
+      const list = document.getElementById('device-list');
+      DEVICE_TYPES.forEach(dt => {
+        const el = document.createElement('div');
+        el.className = 'device-item';
+        el.draggable = true;
+        el.innerHTML = '<div class="dev-icon" style="background:' + dt.color + '22;color:' + dt.color + '">' + dt.icon + '</div><span>' + dt.label + '</span>';
+        el.addEventListener('dragstart', function(e) {
+          e.dataTransfer.setData('text/plain', dt.id);
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+        list.appendChild(el);
+      });
+    }
+
+    /* ─── canvas drop ─────────────────────────────────────────────── */
+    canvasWrap.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    canvasWrap.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var typeId = e.dataTransfer.getData('text/plain');
+      if (!typeId) return;
+      var rect = svg.getBoundingClientRect();
+      var x = (e.clientX - rect.left) / zoom - panX / zoom;
+      var y = (e.clientY - rect.top) / zoom - panY / zoom;
+      saveUndo();
+      addDevice(typeId, x - DEV_W/2, y - DEV_H/2);
+      clearSelection();
+      renderAll();
+      updateStatus();
+    });
+
+    /* ─── device CRUD ─────────────────────────────────────────────── */
+    function addDevice(typeId, x, y) {
+      var dt = DEVICE_TYPES.find(function(d) { return d.id === typeId; });
+      var dev = { id: 'dev-' + nextId++, type: typeId, x: x, y: y, label: dt.label, ip: '' };
+      devices.push(dev);
+      return dev;
+    }
+
+    function deleteSelected() {
+      if (selectedId) {
+        saveUndo();
+        connections = connections.filter(function(c) { return c.from.devId !== selectedId && c.to.devId !== selectedId; });
+        devices = devices.filter(function(d) { return d.id !== selectedId; });
+        selectedId = null;
+        renderAll();
+        updateStatus();
+        showProps();
+      }
+    }
+
+    /* ─── rendering ───────────────────────────────────────────────── */
+    function renderAll() {
+      var NS = 'http://www.w3.org/2000/svg';
+      var g = document.createElementNS(NS, 'g');
+      g.setAttribute('transform', 'translate(' + panX + ',' + panY + ') scale(' + zoom + ')');
+
+      // connections
+      connections.forEach(function(conn) {
+        var fromDev = devices.find(function(d) { return d.id === conn.from.devId; });
+        var toDev = devices.find(function(d) { return d.id === conn.to.devId; });
+        if (!fromDev || !toDev) return;
+        var fp = getPortPos(fromDev, conn.from.port);
+        var tp = getPortPos(toDev, conn.to.port);
+        var midX = (fp.x + tp.x) / 2;
+        var path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', 'M' + fp.x + ',' + fp.y + ' C' + midX + ',' + fp.y + ' ' + midX + ',' + tp.y + ' ' + tp.x + ',' + tp.y);
+        path.setAttribute('data-conn-id', conn.id);
+        path.classList.add('conn-line');
+        if (conn.id === selectedLineId) path.classList.add('selected-line');
+        path.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (mode === 'select') {
+            selectedLineId = conn.id;
+            selectedId = null;
+            renderAll();
+            showProps();
+          }
+        });
+        g.appendChild(path);
+      });
+
+      // devices
+      devices.forEach(function(dev) {
+        var dt = DEVICE_TYPES.find(function(d) { return d.id === dev.type; });
+        var group = document.createElementNS(NS, 'g');
+        group.setAttribute('transform', 'translate(' + dev.x + ',' + dev.y + ')');
+        group.setAttribute('data-dev-id', dev.id);
+        group.classList.add('dev-group');
+        if (dev.id === selectedId) group.classList.add('selected');
+
+        // body
+        var rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('x', 0); rect.setAttribute('y', 0);
+        rect.setAttribute('width', DEV_W); rect.setAttribute('height', DEV_H);
+        rect.setAttribute('rx', 8); rect.setAttribute('ry', 8);
+        rect.setAttribute('fill', TOKENS.surface());
+        rect.classList.add('dev-body');
+        group.appendChild(rect);
+
+        // icon area
+        var iconBg = document.createElementNS(NS, 'rect');
+        iconBg.setAttribute('x', 6); iconBg.setAttribute('y', 10);
+        iconBg.setAttribute('width', 26); iconBg.setAttribute('height', 26);
+        iconBg.setAttribute('rx', 5);
+        iconBg.setAttribute('fill', dt.color + '22');
+        group.appendChild(iconBg);
+
+        var iconText = document.createElementNS(NS, 'text');
+        iconText.setAttribute('x', 19); iconText.setAttribute('y', 29);
+        iconText.setAttribute('text-anchor', 'middle');
+        iconText.setAttribute('font-size', '14');
+        iconText.setAttribute('fill', dt.color);
+        iconText.textContent = dt.icon;
+        group.appendChild(iconText);
+
+        // label
+        var label = document.createElementNS(NS, 'text');
+        label.setAttribute('x', DEV_W/2); label.setAttribute('y', 50);
+        label.classList.add('dev-label');
+        label.textContent = dev.label;
+        group.appendChild(label);
+
+        // ports
+        PORT_POSITIONS.forEach(function(pos) {
+          var pp = getPortLocal(pos);
+          var circle = document.createElementNS(NS, 'circle');
+          circle.setAttribute('cx', pp.x); circle.setAttribute('cy', pp.y);
+          circle.setAttribute('r', PORT_R);
+          circle.classList.add('dev-port');
+          circle.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            if (mode === 'connect') {
+              connectFrom = { devId: dev.id, port: pos };
+              selectedLineId = null;
+              renderAll();
+            }
+          });
+          circle.addEventListener('mouseup', function(e) {
+            e.stopPropagation();
+            if (mode === 'connect' && connectFrom && connectFrom.devId !== dev.id) {
+              saveUndo();
+              connections.push({
+                id: 'conn-' + nextId++,
+                from: { devId: connectFrom.devId, port: connectFrom.port },
+                to: { devId: dev.id, port: pos }
+              });
+              connectFrom = null;
+              renderAll();
+              updateStatus();
+            }
+          });
+          group.appendChild(circle);
+        });
+
+        // drag
+        group.addEventListener('mousedown', function(e) {
+          if (e.target.classList.contains('dev-port')) return;
+          e.stopPropagation();
+          if (mode === 'select') {
+            selectedId = dev.id;
+            selectedLineId = null;
+            renderAll();
+            showProps();
+            dragTarget = dev;
+            var rect = svg.getBoundingClientRect();
+            dragOffsetX = (e.clientX - rect.left) / zoom - panX / zoom - dev.x;
+            dragOffsetY = (e.clientY - rect.top) / zoom - panY / zoom - dev.y;
+          }
+        });
+
+        group.addEventListener('dblclick', function(e) {
+          e.stopPropagation();
+          selectedId = dev.id;
+          selectedLineId = null;
+          renderAll();
+          showProps();
+        });
+
+        g.appendChild(group);
+      });
+
+      // connect preview pulse
+      if (connectFrom && mode === 'connect') {
+        var fromDev = devices.find(function(d) { return d.id === connectFrom.devId; });
+        if (fromDev) {
+          var fp = getPortPos(fromDev, connectFrom.port);
+          var preview = document.createElementNS(NS, 'circle');
+          preview.setAttribute('cx', fp.x); preview.setAttribute('cy', fp.y);
+          preview.setAttribute('r', PORT_R + 2);
+          preview.setAttribute('fill', 'none');
+          preview.setAttribute('stroke', TOKENS.accent());
+          preview.setAttribute('stroke-width', '2');
+          preview.setAttribute('stroke-dasharray', '4 2');
+          g.appendChild(preview);
+        }
+      }
+
+      svg.innerHTML = '';
+      svg.appendChild(g);
+
+      document.getElementById('btn-delete').disabled = !selectedId && !selectedLineId;
+      document.getElementById('btn-undo').disabled = undoStack.length === 0;
+      document.getElementById('btn-redo').disabled = redoStack.length === 0;
+      document.getElementById('status-pos').textContent = selectedId
+        ? '选中: ' + selectedId
+        : selectedLineId ? '选中连线: ' + selectedLineId : '';
+    }
+
+    function getPortLocal(pos) {
+      switch(pos) {
+        case 'top':    return { x: DEV_W/2, y: 0 };
+        case 'right':  return { x: DEV_W,   y: DEV_H/2 };
+        case 'bottom': return { x: DEV_W/2, y: DEV_H };
+        case 'left':   return { x: 0,        y: DEV_H/2 };
+      }
+    }
+
+    function getPortPos(dev, port) {
+      var local = getPortLocal(port);
+      return { x: dev.x + local.x, y: dev.y + local.y };
+    }
+
+    /* ─── mouse events (canvas level) ─────────────────────────────── */
+    svg.addEventListener('mousemove', function(e) {
+      if (dragTarget && mode === 'select') {
+        var rect = svg.getBoundingClientRect();
+        dragTarget.x = Math.round((e.clientX - rect.left) / zoom - panX / zoom - dragOffsetX);
+        dragTarget.y = Math.round((e.clientY - rect.top) / zoom - panY / zoom - dragOffsetY);
+        renderAll();
+        return;
+      }
+      if (isPanning) {
+        panX = panStart.panX + (e.clientX - panStart.x);
+        panY = panStart.panY + (e.clientY - panStart.y);
+        renderAll();
+        return;
+      }
+    });
+
+    svg.addEventListener('mouseup', function() {
+      if (dragTarget) { dragTarget = null; }
+      if (isPanning) { isPanning = false; canvasWrap.classList.remove('panning'); }
+    });
+
+    svg.addEventListener('mouseleave', function() {
+      if (dragTarget) { dragTarget = null; }
+      if (isPanning) { isPanning = false; canvasWrap.classList.remove('panning'); }
+    });
+
+    svg.addEventListener('mousedown', function(e) {
+      if (e.target === svg || e.target === canvasWrap || e.target.classList.contains('canvas-wrap')) {
+        if (mode === 'connect' && connectFrom) {
+          connectFrom = null;
+          renderAll();
+          return;
+        }
+        clearSelection();
+        renderAll();
+        showProps();
+        if (e.button === 0) {
+          isPanning = true;
+          panStart = { x: e.clientX, y: e.clientY, panX: panX, panY: panY };
+          canvasWrap.classList.add('panning');
+        }
+      }
+    });
+
+    canvasWrap.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var delta = e.deltaY > 0 ? -0.08 : 0.08;
+      var newZoom = Math.min(3, Math.max(0.2, zoom + delta));
+      var rect = svg.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var scale = newZoom / zoom;
+      panX = mx - scale * (mx - panX);
+      panY = my - scale * (my - panY);
+      zoom = newZoom;
+      renderAll();
+      updateZoomLabel();
+    });
+
+    /* ─── keyboard ────────────────────────────────────────────────── */
+    document.addEventListener('keydown', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      switch(e.key) {
+        case 'Delete':
+        case 'Backspace':
+          deleteSelected();
+          break;
+        case 's':
+          setMode('select');
+          break;
+        case 'c':
+          setMode('connect');
+          break;
+        case 'Escape':
+          clearSelection();
+          connectFrom = null;
+          renderAll();
+          showProps();
+          break;
+        case 'z':
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); undo(); }
+          break;
+        case 'y':
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); redo(); }
+          break;
+      }
+    });
+
+    /* ─── mode switching ──────────────────────────────────────────── */
+    function setMode(m) {
+      mode = m;
+      connectFrom = null;
+      document.getElementById('btn-select').classList.toggle('accent', m === 'select');
+      document.getElementById('btn-connect').classList.toggle('accent', m === 'connect');
+      document.getElementById('status-mode').textContent = '模式: ' + (m === 'select' ? '选择' : '连线');
+      renderAll();
+    }
+
+    document.getElementById('btn-select').addEventListener('click', function() { setMode('select'); });
+    document.getElementById('btn-connect').addEventListener('click', function() { setMode('connect'); });
+
+    /* ─── undo / redo ─────────────────────────────────────────────── */
+    function saveUndo() {
+      undoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
+      if (undoStack.length > 50) undoStack.shift();
+      redoStack = [];
+    }
+
+    function undo() {
+      if (undoStack.length === 0) return;
+      redoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
+      var state = JSON.parse(undoStack.pop());
+      devices = state.devices;
+      connections = state.connections;
+      nextId = state.nextId;
+      selectedId = null;
+      selectedLineId = null;
+      renderAll();
+      updateStatus();
+      showProps();
+    }
+
+    function redo() {
+      if (redoStack.length === 0) return;
+      undoStack.push(JSON.stringify({ devices: devices, connections: connections, nextId: nextId }));
+      var state = JSON.parse(redoStack.pop());
+      devices = state.devices;
+      connections = state.connections;
+      nextId = state.nextId;
+      selectedId = null;
+      selectedLineId = null;
+      renderAll();
+      updateStatus();
+      showProps();
+    }
+
+    document.getElementById('btn-undo').addEventListener('click', undo);
+    document.getElementById('btn-redo').addEventListener('click', redo);
+    document.getElementById('btn-delete').addEventListener('click', deleteSelected);
+
+    /* ─── zoom controls ───────────────────────────────────────────── */
+    function updateZoomLabel() {
+      document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
+    }
+    document.getElementById('btn-zoom-in').addEventListener('click', function() {
+      zoom = Math.min(3, zoom + 0.15);
+      renderAll();
+      updateZoomLabel();
+    });
+    document.getElementById('btn-zoom-out').addEventListener('click', function() {
+      zoom = Math.max(0.2, zoom - 0.15);
+      renderAll();
+      updateZoomLabel();
+    });
+    document.getElementById('btn-fit').addEventListener('click', function() {
+      if (devices.length === 0) { zoom = 1; panX = 0; panY = 0; }
+      else {
+        var pad = 80;
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        devices.forEach(function(d) {
+          if (d.x < minX) minX = d.x;
+          if (d.y < minY) minY = d.y;
+          if (d.x + DEV_W > maxX) maxX = d.x + DEV_W;
+          if (d.y + DEV_H > maxY) maxY = d.y + DEV_H;
+        });
+        var cw = canvasWrap.clientWidth;
+        var ch = canvasWrap.clientHeight;
+        var contentW = maxX - minX + pad * 2;
+        var contentH = maxY - minY + pad * 2;
+        zoom = Math.min(cw / contentW, ch / contentH, 1.5);
+        panX = cw/2 - (minX + (maxX - minX)/2) * zoom;
+        panY = ch/2 - (minY + (maxY - minY)/2) * zoom;
+      }
+      renderAll();
+      updateZoomLabel();
+    });
+
+    /* ─── clear selection ─────────────────────────────────────────── */
+    function clearSelection() {
+      selectedId = null;
+      selectedLineId = null;
+    }
+
+    /* ─── properties panel ────────────────────────────────────────── */
+    function showProps() {
+      var body = document.getElementById('props-body');
+      var typeLabel = document.getElementById('props-device-type');
+      if (selectedLineId) {
+        var conn = connections.find(function(c) { return c.id === selectedLineId; });
+        if (!conn) { body.innerHTML = '<p class="props-empty">选择一个设备查看属性</p>'; typeLabel.textContent = ''; return; }
+        var fromDev = devices.find(function(d) { return d.id === conn.from.devId; });
+        var toDev = devices.find(function(d) { return d.id === conn.to.devId; });
+
+        // Ensure bandwidth/delay defaults
+        if (conn.bandwidth === undefined) conn.bandwidth = 100;
+        if (conn.delay === undefined) conn.delay = 5;
+
+        typeLabel.textContent = '连线';
+        body.innerHTML =
+          '<div class="prop-group"><label>连线 ID</label><input readonly value="' + conn.id + '" /></div>' +
+          '<div class="prop-group"><label>起点</label><input readonly value="' + (fromDev ? fromDev.label : '?') + ' · ' + conn.from.port + '" /></div>' +
+          '<div class="prop-group"><label>终点</label><input readonly value="' + (toDev ? toDev.label : '?') + ' · ' + conn.to.port + '" /></div>' +
+          '<div class="prop-group"><label>带宽 (Mbps)</label><input type="number" value="' + conn.bandwidth + '" min="1" max="10000" step="1" onchange="updateConnProp(\'bandwidth\', parseFloat(this.value))" /></div>' +
+          '<div class="prop-group"><label>时延 (ms)</label><input type="number" value="' + conn.delay + '" min="0" max="500" step="0.1" onchange="updateConnProp(\'delay\', parseFloat(this.value))" /></div>' +
+          '<button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelectedLine()">删除连线</button>';
+        return;
+      }
+      if (!selectedId) {
+        body.innerHTML = '<p class="props-empty">选择一个设备查看属性</p>';
+        typeLabel.textContent = '';
+        return;
+      }
+      var dev = devices.find(function(d) { return d.id === selectedId; });
+      if (!dev) { body.innerHTML = '<p class="props-empty">选择一个设备查看属性</p>'; typeLabel.textContent = ''; return; }
+      var dt = DEVICE_TYPES.find(function(d) { return d.id === dev.type; });
+      typeLabel.textContent = dt ? dt.label : '';
+      var opts = DEVICE_TYPES.map(function(d) { return '<option value="' + d.id + '"' + (dev.type === d.id ? ' selected' : '') + '>' + d.label + '</option>'; }).join('');
+      body.innerHTML =
+        '<div class="prop-group"><label>名称</label><input value="' + escHtml(dev.label) + '" onchange="updateDeviceProp(\'label\', this.value)" /></div>' +
+        '<div class="prop-group"><label>类型</label><select onchange="updateDeviceProp(\'type\', this.value)">' + opts + '</select></div>' +
+        '<div class="prop-group"><label>IP 地址</label><input value="' + escHtml(dev.ip) + '" placeholder="192.168.1.1" onchange="updateDeviceProp(\'ip\', this.value)" /></div>' +
+        '<div class="prop-group"><label>位置 X</label><input type="number" value="' + Math.round(dev.x) + '" onchange="updateDeviceProp(\'x\', parseFloat(this.value))" /></div>' +
+        '<div class="prop-group"><label>位置 Y</label><input type="number" value="' + Math.round(dev.y) + '" onchange="updateDeviceProp(\'y\', parseFloat(this.value))" /></div>' +
+        '<button class="tb-btn danger" style="width:100%;margin-top:8px;" onclick="deleteSelected()">删除设备</button>';
+    }
+
+    function updateDeviceProp(prop, value) {
+      if (!selectedId) return;
+      var dev = devices.find(function(d) { return d.id === selectedId; });
+      if (!dev) return;
+      saveUndo();
+      dev[prop] = value;
+      renderAll();
+      showProps();
+    }
+
+    function updateConnProp(prop, value) {
+      if (!selectedLineId) return;
+      var conn = connections.find(function(c) { return c.id === selectedLineId; });
+      if (!conn) return;
+      saveUndo();
+      conn[prop] = value;
+      renderAll();
+      showProps();
+    }
+
+    function deleteSelectedLine() {
+      if (selectedLineId) {
+        saveUndo();
+        connections = connections.filter(function(c) { return c.id !== selectedLineId; });
+        selectedLineId = null;
+        renderAll();
+        updateStatus();
+        showProps();
+      }
+    }
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    /* ─── status bar ──────────────────────────────────────────────── */
+    function updateStatus() {
+      document.getElementById('status-count').textContent = '设备: ' + devices.length;
+      document.getElementById('status-conn').textContent = '连线: ' + connections.length;
+      document.getElementById('btn-delete').disabled = !selectedId && !selectedLineId;
+      document.getElementById('btn-undo').disabled = undoStack.length === 0;
+      document.getElementById('btn-redo').disabled = redoStack.length === 0;
+    }
+
+    /* ─── export / import ─────────────────────────────────────────── */
+    document.getElementById('btn-export').addEventListener('click', function() {
+      var data = { devices: devices, connections: connections, nextId: nextId };
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'topology.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    /* ─── init ────────────────────────────────────────────────────── */
+    function init() {
+      buildPalette();
+      setMode('select');
+
+      // pre-populate sample topology
+      var r1 = addDevice('router', 400, 80);
+      r1.label = 'Core Router'; r1.ip = '10.0.0.1';
+      var fw = addDevice('firewall', 400, 220);
+      fw.label = 'Edge FW'; fw.ip = '10.0.0.2';
+      var sw = addDevice('switch', 400, 360);
+      sw.label = 'Core Switch'; sw.ip = '10.0.1.1';
+      var s1 = addDevice('server', 160, 500);
+      s1.label = 'Web-01'; s1.ip = '10.0.2.10';
+      var s2 = addDevice('server', 400, 500);
+      s2.label = 'App-01'; s2.ip = '10.0.2.20';
+      var s3 = addDevice('server', 640, 500);
+      s3.label = 'DB-01'; s3.ip = '10.0.2.30';
+      var lb = addDevice('lb', 160, 220);
+      lb.label = 'LB-01'; lb.ip = '10.0.0.10';
+
+      connections.push(
+        { id: 'conn-1', from: { devId: r1.id, port: 'bottom' }, to: { devId: fw.id, port: 'top' } },
+        { id: 'conn-2', from: { devId: fw.id, port: 'bottom' }, to: { devId: sw.id, port: 'top' } },
+        { id: 'conn-3', from: { devId: sw.id, port: 'bottom' }, to: { devId: s1.id, port: 'top' } },
+        { id: 'conn-4', from: { devId: sw.id, port: 'bottom' }, to: { devId: s2.id, port: 'top' } },
+        { id: 'conn-5', from: { devId: sw.id, port: 'bottom' }, to: { devId: s3.id, port: 'top' } },
+        { id: 'conn-6', from: { devId: lb.id, port: 'right' }, to: { devId: fw.id, port: 'left' } }
+      );
+      nextId = 100;
+      undoStack = [];
+
+      renderAll();
+      updateStatus();
+      showProps();
+      document.getElementById('btn-fit').click();
+    }
+
+    init();
+  </script>
+</body>
+</html>
