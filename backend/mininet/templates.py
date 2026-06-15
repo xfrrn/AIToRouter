@@ -7,12 +7,11 @@ from schemas.models import TopologyJSON
 
 MININET_SCRIPT_TEMPLATE = '''\
 #!/usr/bin/env python3
-"""Auto-generated Mininet topology."""
+"""Auto-generated Mininet topology — automated iperf measurement mode."""
 from mininet.topo import Topo
 from mininet.net import Mininet
-from mininet.cli import CLI
 from mininet.log import setLogLevel
-import json, sys, time, os
+import json, sys, time, os, re
 
 class CustomTopo(Topo):
     def build(self):
@@ -23,72 +22,118 @@ class CustomTopo(Topo):
         self.addLink({{ conn.src }}, {{ conn.dst }}, bw={{ conn.bw }}, delay='{{ conn.delay }}ms')
         {% endfor %}
 
-def run_iperf_flows(flows_file):
-    """Run iperf flows from a JSON file and collect results."""
-    with open(flows_file) as f:
-        flows = json.load(f)
+def parse_iperf_bandwidth(output):
+    """Extract measured bandwidth (Mbps) from iperf client output."""
+    # iperf3: "receiver" line ends with "... Mbits/sec"
+    # iperf2: last line with "Mbits/sec" or "MBytes"
+    for line in reversed(output.splitlines()):
+        m = re.search(r'([0-9.]+)\s*(M|G)bits/sec', line)
+        if m:
+            val = float(m.group(1))
+            if m.group(2) == 'G':
+                val *= 1000
+            return val
+        m = re.search(r'([0-9.]+)\s*(M|G)Bytes', line)
+        if m:
+            val = float(m.group(1)) * 8
+            if m.group(2) == 'G':
+                val *= 1000
+            return val
+    return None
 
+def parse_ping_rtt(output):
+    """Extract average RTT (ms) from ping output."""
+    # e.g. "rtt min/avg/max/mdev = 0.123/0.456/0.789/0.123 ms"
+    for line in output.splitlines():
+        m = re.search(r'rtt min/avg/max/mdev =\s+[\d.]+/([\d.]+)/', line)
+        if m:
+            return float(m.group(1))
+    return None
+
+def run_iperf_flows(net, flows):
+    """Run iperf flows and collect measured throughput."""
     results = []
     for flow in flows:
-        src = flow["src"]
-        dst = flow["dst"]
+        src_name = flow["src"]
+        dst_name = flow["dst"]
         bw = flow["bw_req"]
         duration = flow.get("duration", 5)
+        flow_id = flow["flow_id"]
+
+        src_host = net.get(src_name)
+        dst_host = net.get(dst_name)
+        if not src_host or not dst_host:
+            results.append({"flow_id": flow_id, "src": src_name, "dst": dst_name,
+                           "bw_req": bw, "measured_bw": 0, "error": "host not found"})
+            continue
 
         # Start iperf server on dst
-        dst_host = net.get(dst)
-        dst_host.cmd(f"iperf -s -p 5001 &")
+        dst_host.cmd("pkill iperf 2>/dev/null; iperf -s -p 5001 &")
+        time.sleep(0.3)
 
-        # Run iperf client on src
-        src_host = net.get(src)
-        out = src_host.cmd(f"iperf -c {dst_host.IP()} -p 5001 -b {bw}M -t {duration} 2>&1")
+        # Run iperf client
+        out = src_host.cmd(
+            f"iperf -c {dst_host.IP()} -p 5001 -b {bw}M -t {duration} 2>&1"
+        )
+        measured = parse_iperf_bandwidth(out)
 
-        # Parse bandwidth from iperf output
-        results.append({"flow_id": flow["flow_id"], "src": src, "dst": dst, "output": out})
+        # Kill server
+        dst_host.cmd("pkill iperf 2>/dev/null")
 
-        # Kill iperf server
-        dst_host.cmd("pkill iperf")
+        results.append({
+            "flow_id": flow_id, "src": src_name, "dst": dst_name,
+            "bw_req": bw, "measured_bw": round(measured, 2) if measured else 0,
+        })
 
     return results
 
-def collect_link_util(net, G_data):
-    """Collect link utilization from the running network."""
-    edges = []
-    for link_data in G_data["edges"]:
-        u, v = link_data["src"], link_data["dst"]
-        # Get interface stats from both sides
-        try:
-            src_host = net.get(u)
-            # Use tc to read current utilization (approximate from iperf runs)
-            edges.append({"src": u, "dst": v, "utilization": 0.0})
-        except:
-            edges.append({"src": u, "dst": v, "utilization": 0.0})
-    return edges
+def measure_link_rtt(net, edges):
+    """Ping between every adjacent host pair to measure per-link RTT."""
+    link_rtts = {}
+    for edge in edges:
+        s, d = edge["src"], edge["dst"]
+        src_host = net.get(s)
+        dst_host = net.get(d)
+        if not src_host or not dst_host:
+            continue
+        out = src_host.cmd(f"ping -c 3 -q {dst_host.IP()} 2>&1")
+        rtt = parse_ping_rtt(out)
+        link_rtts[f"{s}-{d}"] = round(rtt, 2) if rtt else None
+    return link_rtts
 
 if __name__ == "__main__":
-    setLogLevel("info")
+    setLogLevel("error")
     topo = CustomTopo()
     net = Mininet(topo=topo)
     net.start()
-
-    # Wait for network to stabilize
     time.sleep(2)
 
-    # Ping all hosts to verify connectivity
+    # Quick connectivity check
     net.pingAll()
 
-    # Run flows if provided
     flows_file = os.environ.get("FLOWS_FILE", "")
-    if flows_file and os.path.exists(flows_file):
-        results = run_iperf_flows(flows_file)
-        print("FLOW_RESULTS:", json.dumps(results))
+    flow_results = []
+    link_rtts = {}
 
-    # Output topology info for the host
-    print("TOPO_READY")
+    if flows_file and os.path.exists(flows_file):
+        with open(flows_file) as f:
+            flows = json.load(f)
+        flow_results = run_iperf_flows(net, flows)
+
+    # Measure per-link RTT
+    edges_json = os.environ.get("EDGES_JSON", "")
+    if edges_json:
+        edges = json.loads(edges_json)
+        link_rtts = measure_link_rtt(net, edges)
+
+    # Output structured result as a single JSON line with a unique marker
+    output = {
+        "flow_results": flow_results,
+        "link_rtts": link_rtts,
+    }
+    print("MININET_RESULTS:" + json.dumps(output))
     sys.stdout.flush()
 
-    # Keep running for CLI or script control
-    CLI(net)
     net.stop()
 '''
 

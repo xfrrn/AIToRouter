@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import uuid
-import time
 import json
 import os
+import re
 import tempfile
 import logging
 from pathlib import Path
@@ -19,6 +19,7 @@ from mininet.templates import generate_mininet_script, build_nx_graph
 
 log = logging.getLogger("ai-router.mininet")
 MININET_IMAGE = "iwaseyusuke/mininet:latest"
+MININET_EXEC_TIMEOUT = 120  # seconds — iperf tests can take a while
 
 
 def check_docker_available() -> bool:
@@ -46,12 +47,21 @@ class MininetManager:
             self.client.images.pull(MININET_IMAGE)
             log.info("Mininet image pulled successfully")
 
-    def deploy(self, topology: TopologyJSON, flows: list[dict]) -> tuple[str, str, str]:
-        """Deploy topology to a Mininet container. Returns (container_id, exec_id, tmpdir)."""
-        self._ensure_image()  # pull on first use, not at startup
+    def deploy(self, topology: TopologyJSON, flows: list[dict]) -> tuple[str, str, str, dict | None]:
+        """Deploy topology to a Mininet container, run iperf, collect measurements.
+
+        Returns (container_id, exec_id, tmpdir, mininet_results).
+        mininet_results is None if the script failed or produced no output.
+        """
+        self._ensure_image()
 
         container_name = f"mininet-{uuid.uuid4().hex[:8]}"
         script = generate_mininet_script(topology)
+
+        # Build edge list for per-link RTT measurement
+        edges_for_env = []
+        for conn in topology.connections:
+            edges_for_env.append({"src": conn.from_.devId, "dst": conn.to.devId})
 
         # Write script and flows to temp directory
         tmpdir = tempfile.mkdtemp(prefix="mininet-")
@@ -71,22 +81,49 @@ class MininetManager:
             name=container_name,
             command="tail -f /dev/null",
             volumes={tmpdir: {"bind": "/tmp/topo", "mode": "rw"}},
-            environment={"FLOWS_FILE": "/tmp/topo/flows.json"},
+            environment={
+                "FLOWS_FILE": "/tmp/topo/flows.json",
+                "EDGES_JSON": json.dumps(edges_for_env),
+            },
             privileged=True,
             detach=True,
             remove=False,
         )
         log.info("Container started: %s", container.id[:12])
 
-        log.info("Executing Mininet topology script in container...")
-        exec_result = self.client.api.exec_create(
-            container.id,
+        # Actually run the topology script and wait for completion
+        log.info("Running Mininet topology script (timeout=%ds)...", MININET_EXEC_TIMEOUT)
+        exit_code, output = container.exec_run(
             "python /tmp/topo/topo.py",
             stdout=True,
             stderr=True,
+            demux=False,
         )
+        stdout = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else str(output)
 
-        return container.id, exec_result["Id"], tmpdir
+        log.info("Mininet script finished: exit_code=%d, output_len=%d", exit_code, len(stdout))
+
+        # Parse structured results from stdout
+        mininet_results = self._parse_results(stdout)
+        if mininet_results:
+            log.info("Mininet measurements: %d flow results, %d link RTTs",
+                     len(mininet_results.get("flow_results", [])),
+                     len(mininet_results.get("link_rtts", {})))
+        else:
+            log.warning("No MININET_RESULTS found in script output (first 300 chars): %s",
+                        stdout[:300])
+
+        return container.id, "", tmpdir, mininet_results
+
+    def _parse_results(self, stdout: str) -> dict | None:
+        """Extract MININET_RESULTS JSON from script stdout."""
+        m = re.search(r'MININET_RESULTS:(\{.*\})', stdout, re.DOTALL)
+        if not m:
+            return None
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            return None
 
     def get_container(self, container_id: str):
         """Get a container by ID."""

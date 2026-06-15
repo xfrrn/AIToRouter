@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import uuid
-import time
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +17,7 @@ from schemas.models import (
     TopologyJSON,
     DeploymentResult,
     FlowResult,
+    MininetFlowMeasurement,
     ChatRequest,
     ChatResponse,
 )
@@ -40,10 +40,25 @@ docker_available = False
 jobs: dict[str, DeploymentResult] = {}
 
 
-def _build_result(job_id: str, G, flow_results: list[dict], edge_utils: dict) -> DeploymentResult:
-    """Build DeploymentResult from inference output."""
+def _build_result(
+    job_id: str,
+    G,
+    flow_results: list[dict],
+    edge_utils: dict,
+    mininet_used: bool = False,
+    mininet_data: dict | None = None,
+    id_to_idx: dict | None = None,
+) -> DeploymentResult:
+    """Build DeploymentResult from inference output, optionally enriched with Mininet data."""
+    # Map Mininet measured_bw per flow_id
+    measured_map: dict[int, float] = {}
+    if mininet_data:
+        for mfr in mininet_data.get("flow_results", []):
+            measured_map[mfr["flow_id"]] = mfr.get("measured_bw", 0)
+
     result_flows = []
     for fr in flow_results:
+        measured_bw = measured_map.get(fr["flow_id"])
         result_flows.append(
             FlowResult(
                 flow_id=fr["flow_id"],
@@ -55,19 +70,54 @@ def _build_result(job_id: str, G, flow_results: list[dict], edge_utils: dict) ->
                 hops=fr["hops"],
                 max_link_utilization=fr["max_link_utilization"],
                 ospf_path=fr.get("ospf_path"),
+                measured_bw=measured_bw,
             )
         )
+
+    # Build MininetFlowMeasurement list
+    mininet_flow_results = None
+    if mininet_data:
+        mininet_flow_results = []
+        for mfr in mininet_data.get("flow_results", []):
+            mininet_flow_results.append(
+                MininetFlowMeasurement(
+                    flow_id=mfr["flow_id"],
+                    src=mfr.get("src", ""),
+                    dst=mfr.get("dst", ""),
+                    bw_req=mfr.get("bw_req", 0),
+                    measured_bw=mfr.get("measured_bw", 0),
+                )
+            )
+
+    # Convert link_rtts keys from "h1-h2" to "srcIdx-dstIdx" if we have the mapping
+    mininet_link_rtts = None
+    if mininet_data and id_to_idx:
+        raw_rtts = mininet_data.get("link_rtts", {})
+        if raw_rtts:
+            # Build reverse map: hostname → idx
+            host_to_idx = {f"h{idx + 1}": idx for dev_id, idx in id_to_idx.items()}
+            mininet_link_rtts = {}
+            for key, rtt in raw_rtts.items():
+                parts = key.rsplit("-", 1)
+                if len(parts) == 2:
+                    src_idx = host_to_idx.get(parts[0])
+                    dst_idx = host_to_idx.get(parts[1])
+                    if src_idx is not None and dst_idx is not None:
+                        mininet_link_rtts[f"{src_idx}-{dst_idx}"] = rtt
 
     topo_edges = []
     for u, v, data in G.edges(data=True):
         util = edge_utils.get((u, v), edge_utils.get((v, u), 0.0))
-        topo_edges.append({
+        edge_entry = {
             "src": u,
             "dst": v,
             "bandwidth": data.get("bandwidth", 100.0),
             "delay": data.get("delay", 5.0),
             "utilization": round(util, 4),
-        })
+        }
+        if "measured_rtt" in data:
+            edge_entry["measured_rtt"] = data["measured_rtt"]
+        topo_edges.append(edge_entry)
 
     return DeploymentResult(
         job_id=job_id,
@@ -75,6 +125,9 @@ def _build_result(job_id: str, G, flow_results: list[dict], edge_utils: dict) ->
         flows=result_flows,
         topology_nodes=list(range(G.number_of_nodes())),
         topology_edges=topo_edges,
+        mininet_used=mininet_used,
+        mininet_flow_results=mininet_flow_results,
+        mininet_link_rtts=mininet_link_rtts,
     )
 
 
@@ -202,7 +255,8 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
             flow_results, edge_utils = _run_ospf_baseline(G, flows)
             log.info("[/api/infer] >>> using OSPF BASELINE <<<")
 
-        result = _build_result(job_id, G, flow_results, edge_utils)
+        result = _build_result(job_id, G, flow_results, edge_utils,
+                              mininet_used=False, mininet_data=None, id_to_idx=id_to_idx)
         log.info("[/api/infer] done | %d flow results", len(result.flows))
 
     except Exception as e:
@@ -232,6 +286,7 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
 
     # ── Try Mininet path ──
     used_mininet = False
+    mininet_data = None
     container_id = None
     tmpdir = None
 
@@ -253,11 +308,44 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
                     "duration": f["duration"],
                 })
 
-            log.info("[/api/deploy] creating Mininet container...")
-            container_id, exec_id, tmpdir = mn_manager.deploy(topology, mininet_flows)
-            log.info("[/api/deploy] container=%s running, waiting...", container_id[:12])
-            time.sleep(5)
-            used_mininet = True
+            log.info("[/api/deploy] deploying to Mininet + running iperf...")
+            container_id, _, tmpdir, mininet_data = mn_manager.deploy(topology, mininet_flows)
+
+            if mininet_data is not None:
+                used_mininet = True
+                log.info("[/api/deploy] Mininet measurements collected successfully")
+
+                # Feed measured RTT back into graph edges for inference
+                raw_rtts = mininet_data.get("link_rtts", {})
+                if raw_rtts:
+                    updated = 0
+                    for key, rtt in raw_rtts.items():
+                        if rtt is None:
+                            continue
+                        # key format: "h1-h2" → map to device indices
+                        parts = key.rsplit("-", 1)
+                        if len(parts) != 2:
+                            continue
+                        src_idx = None
+                        dst_idx = None
+                        for dev_id, idx in id_to_idx.items():
+                            hostname = f"h{idx + 1}"
+                            if hostname == parts[0]:
+                                src_idx = idx
+                            if hostname == parts[1]:
+                                dst_idx = idx
+                        if src_idx is not None and dst_idx is not None:
+                            if G.has_edge(src_idx, dst_idx):
+                                old_delay = G[src_idx][dst_idx].get("delay", 5.0)
+                                # Blend: 70% measured + 30% configured (avoids outlier noise)
+                                blended = round(rtt * 0.7 + old_delay * 0.3, 2)
+                                G[src_idx][dst_idx]["delay"] = blended
+                                G[src_idx][dst_idx]["measured_rtt"] = rtt
+                                updated += 1
+                    if updated:
+                        log.info("[/api/deploy] updated %d edge delays with measured RTT", updated)
+            else:
+                log.warning("[/api/deploy] Mininet returned no measurements, using static topology")
         except Exception as e:
             log.warning("[/api/deploy] Mininet failed (%s), falling back to direct inference", e)
             used_mininet = False
@@ -265,7 +353,7 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
     # ── Run inference ──
     try:
         if used_mininet:
-            log.info("[/api/deploy] running inference on live Mininet topology...")
+            log.info("[/api/deploy] running inference with Mininet-measured topology...")
         else:
             log.info("[/api/deploy] running direct inference (no Mininet)...")
 
@@ -278,8 +366,14 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
         log.info("[/api/deploy] >>> used: %s + OSPF BASELINE <<<",
                  "Mininet DOCKER" if used_mininet else "DIRECT inference")
 
-    result = _build_result(job_id, G, flow_results, edge_utils)
-    log.info("[/api/deploy] done | %d flow results", len(result.flows))
+    result = _build_result(
+        job_id, G, flow_results, edge_utils,
+        mininet_used=used_mininet,
+        mininet_data=mininet_data,
+        id_to_idx=id_to_idx,
+    )
+    log.info("[/api/deploy] done | %d flow results | mininet=%s",
+             len(result.flows), used_mininet)
 
     # Cleanup
     if container_id is not None:

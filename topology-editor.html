@@ -500,6 +500,7 @@
   <div class="result-panel" id="result-panel">
     <div class="result-header">
       <span>推理结果 · <span id="result-flow-count">0</span> 条流</span>
+      <span id="mininet-badge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;margin-left:8px;"></span>
       <div class="flow-selector">
         <label for="flow-select" style="color:var(--muted);">查看流:</label>
         <select id="flow-select" onchange="highlightFlow(this.value)">
@@ -512,7 +513,7 @@
       <table class="result-table">
         <thead>
           <tr>
-            <th>流 ID</th><th>src → dst</th><th>bw (Mbps)</th><th>φ</th>
+            <th>流 ID</th><th>src → dst</th><th>bw (Mbps)</th><th>实测 bw</th><th>φ</th>
             <th>模型路径</th><th>跳数</th><th>利用率</th><th>OSPF路径</th>
           </tr>
         </thead>
@@ -1161,6 +1162,19 @@
 
       countEl.textContent = result.flows.length;
 
+      // Mininet status badge
+      var mnBadge = document.getElementById('mininet-badge');
+      if (mnBadge) {
+        if (result.mininet_used) {
+          mnBadge.textContent = 'Mininet 实测';
+          mnBadge.style.background = '#36B37E';
+        } else {
+          mnBadge.textContent = '仅模型推理';
+          mnBadge.style.background = '#6554C0';
+        }
+        mnBadge.style.display = 'inline-block';
+      }
+
       // Populate flow selector
       select.innerHTML = '<option value="">全部</option>';
       result.flows.forEach(function(f, i) {
@@ -1172,12 +1186,16 @@
       result.flows.forEach(function(f, i) {
         var pathStr = f.selected_path.join(' → ');
         var ospfStr = f.ospf_path ? f.ospf_path.join(' → ') : '-';
+        var measuredStr = (f.measured_bw != null)
+          ? '<span style="color:#36B37E">' + f.measured_bw + '</span>'
+          : '<span style="color:var(--muted)">-</span>';
         var tr = document.createElement('tr');
         tr.id = 'flow-row-' + i;
         tr.innerHTML =
           '<td>' + f.flow_id + '</td>' +
           '<td>' + f.src + ' → ' + f.dst + '</td>' +
           '<td>' + f.bw_req + '</td>' +
+          '<td>' + measuredStr + '</td>' +
           '<td>' + f.phi + '</td>' +
           '<td>' + pathStr + '</td>' +
           '<td>' + f.hops + '</td>' +

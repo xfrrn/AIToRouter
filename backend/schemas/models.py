@@ -44,6 +44,16 @@ class FlowResult(BaseModel):
     hops: int
     max_link_utilization: float
     ospf_path: list[int] | None = None
+    measured_bw: float | None = None  # Mbps, from Mininet iperf (None if Mininet not used)
+
+
+class MininetFlowMeasurement(BaseModel):
+    """Per-flow measurement from Mininet iperf."""
+    flow_id: int
+    src: str  # Mininet hostname, e.g. "h1"
+    dst: str
+    bw_req: float
+    measured_bw: float  # actual iperf throughput in Mbps
 
 
 class DeploymentResult(BaseModel):
@@ -53,6 +63,9 @@ class DeploymentResult(BaseModel):
     error: str | None = None
     topology_nodes: list[int] = []
     topology_edges: list[dict] = []  # [{src, dst, bandwidth, delay, utilization}]
+    mininet_used: bool = False
+    mininet_flow_results: list[MininetFlowMeasurement] | None = None
+    mininet_link_rtts: dict[str, float | None] | None = None  # {"src-dst": rtt_ms}
 
 
 class ChatRequest(BaseModel):
