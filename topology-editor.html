@@ -6,16 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>网络拓扑编辑器 · TopoBuilder</title>
   <style>
-    /* ─── tokens — Tech/Utility direction ──────────────────────────── */
+    /* ─── tokens — soft / modern direction ─────────────────────────── */
     :root {
-      --bg:       oklch(98% 0.005 250);
+      --bg:       oklch(97.5% 0.004 250);
       --surface:  oklch(100% 0 0);
-      --fg:       oklch(22% 0.02 240);
-      --muted:    oklch(50% 0.018 240);
-      --border:   oklch(90% 0.008 240);
-      --accent:   oklch(58% 0.16 145);
+      --fg:       oklch(24% 0.015 245);
+      --muted:    oklch(52% 0.015 240);
+      --border:   oklch(89% 0.006 248);
+      --accent:   oklch(55% 0.17 175);
 
-      --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+      --accent-soft: color-mix(in oklch, var(--accent) 10%, transparent);
       --danger:      oklch(54% 0.22 22);
       --warn:        oklch(62% 0.16 85);
       --success:     oklch(56% 0.16 155);
@@ -25,9 +25,14 @@
       --font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 
       --fs-xs: 11px; --fs-sm: 12px; --fs-body: 13px; --fs-lg: 15px;
-      --radius: 6px; --radius-lg: 10px;
+      --radius-sm: 6px; --radius: 10px; --radius-lg: 14px; --radius-xl: 20px;
       --gap: 8px; --gap-md: 16px; --gap-lg: 24px;
-      --sidebar-w: 220px; --toolbar-h: 44px;
+      --sidebar-w: 220px; --toolbar-h: 48px;
+
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+      --shadow:    0 4px 16px rgba(0,0,0,0.06);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -47,6 +52,15 @@
     button { font: inherit; cursor: pointer; }
     input, select { font: inherit; }
 
+    /* ─── scrollbar ────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
     /* ─── toolbar ─────────────────────────────────────────────────── */
     .toolbar {
       height: var(--toolbar-h);
@@ -55,36 +69,58 @@
       display: flex; align-items: center;
       padding: 0 var(--gap-md); gap: var(--gap);
       flex-shrink: 0; z-index: 10;
+      box-shadow: var(--shadow-sm);
     }
     .toolbar .brand {
-      font-family: var(--font-mono);
-      font-size: var(--fs-sm);
+      font-family: var(--font-display);
+      font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: -0.01em;
       color: var(--fg);
       margin-right: var(--gap-lg);
     }
     .toolbar .sep {
-      width: 1px; height: 20px;
+      width: 1px; height: 22px;
       background: var(--border);
-      margin: 0 var(--gap);
+      margin: 0 4px;
+      border-radius: 1px;
     }
     .tb-btn {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 5px 10px;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 12px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--surface);
       color: var(--fg);
+      font-family: var(--font-body);
       font-size: var(--fs-sm);
-      transition: background 0.1s;
+      font-weight: 500;
+      transition: all var(--transition);
     }
-    .tb-btn:hover { background: var(--accent-soft); }
-    .tb-btn:active { transform: translateY(1px); }
-    .tb-btn.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-    .tb-btn.accent:hover { background: color-mix(in oklch, var(--accent) 88%, black); }
+    .tb-btn:hover {
+      background: var(--accent-soft);
+      border-color: color-mix(in oklch, var(--accent) 30%, transparent);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
+    }
+    .tb-btn:active { transform: translateY(0); box-shadow: none; }
+    .tb-btn.accent {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+      font-weight: 600;
+    }
+    .tb-btn.accent:hover {
+      background: color-mix(in oklch, var(--accent) 85%, black);
+      box-shadow: 0 2px 8px color-mix(in oklch, var(--accent) 35%, transparent);
+    }
     .tb-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
-    .tb-btn:disabled { opacity: 0.35; pointer-events: none; }
+    .tb-btn:disabled { opacity: 0.3; pointer-events: none; transform: none; }
+    .tb-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--muted);
+      font-size: var(--fs-sm);
+      white-space: nowrap;
+    }
+    .tb-toggle input { margin: 0; }
     .zoom-label {
       font-family: var(--font-mono);
       font-size: var(--fs-xs);
@@ -104,11 +140,12 @@
       overflow: hidden;
     }
     .sidebar-header {
-      padding: 12px var(--gap-md);
+      padding: 14px var(--gap-md);
       border-bottom: 1px solid var(--border);
-      font-family: var(--font-mono);
+      font-family: var(--font-display);
       font-size: var(--fs-xs);
-      letter-spacing: 0.05em;
+      font-weight: 600;
+      letter-spacing: 0.03em;
       text-transform: uppercase;
       color: var(--muted);
     }
@@ -119,29 +156,37 @@
     }
     .device-item {
       display: flex; align-items: center; gap: 10px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: var(--radius-lg);
       background: var(--surface);
       cursor: grab;
-      transition: background 0.1s, border-color 0.1s;
+      transition: all var(--transition);
+      font-family: var(--font-body);
       font-size: var(--fs-sm);
+      font-weight: 500;
     }
-    .device-item:hover { background: var(--accent-soft); border-color: var(--accent); }
-    .device-item:active { cursor: grabbing; }
+    .device-item:hover {
+      background: var(--accent-soft);
+      border-color: color-mix(in oklch, var(--accent) 35%, transparent);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    .device-item:active { cursor: grabbing; transform: scale(0.97); }
     .device-item .dev-icon {
-      width: 32px; height: 32px;
+      width: 34px; height: 34px;
       display: grid; place-items: center;
       border-radius: var(--radius);
-      font-size: 16px;
+      font-size: 17px;
       flex-shrink: 0;
+      background: var(--bg);
     }
 
     /* ─── canvas ──────────────────────────────────────────────────── */
     .canvas-wrap {
       flex: 1; overflow: hidden;
       background:
-        radial-gradient(circle, var(--border) 1px, transparent 1px);
+        radial-gradient(circle, color-mix(in oklch, var(--border) 60%, transparent) 1px, transparent 1px);
       background-size: 20px 20px;
       background-color: var(--bg);
       position: relative;
@@ -161,11 +206,12 @@
       overflow: hidden;
     }
     .props-header {
-      padding: 12px var(--gap-md);
+      padding: 14px var(--gap-md);
       border-bottom: 1px solid var(--border);
-      font-family: var(--font-mono);
+      font-family: var(--font-display);
       font-size: var(--fs-xs);
-      letter-spacing: 0.05em;
+      font-weight: 600;
+      letter-spacing: 0.03em;
       text-transform: uppercase;
       color: var(--muted);
       display: flex; align-items: center; justify-content: space-between;
@@ -179,38 +225,46 @@
       font-size: var(--fs-sm);
       text-align: center;
       padding-top: 48px;
+      font-family: var(--font-body);
     }
     .prop-group { margin-bottom: var(--gap-md); }
     .prop-group label {
       display: block;
-      font-family: var(--font-mono);
+      font-family: var(--font-display);
       font-size: var(--fs-xs);
-      letter-spacing: 0.04em;
+      font-weight: 600;
+      letter-spacing: 0.03em;
       text-transform: uppercase;
       color: var(--muted);
       margin-bottom: 4px;
     }
     .prop-group input, .prop-group select {
       width: 100%;
-      padding: 6px 8px;
+      padding: 7px 10px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--bg);
       color: var(--fg);
+      font-family: var(--font-body);
       font-size: var(--fs-sm);
+      transition: all var(--transition);
     }
     .prop-group input:focus, .prop-group select:focus {
-      outline: 2px solid var(--accent-soft);
+      outline: none;
       border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
     /* ─── SVG device styles ───────────────────────────────────────── */
-    .dev-group { cursor: grab; }
+    .dev-group { cursor: grab; transition: opacity var(--transition); }
     .dev-group.dragging { cursor: grabbing; opacity: 0.85; }
-    .dev-group.selected .dev-body { stroke: var(--accent); stroke-width: 2.5; }
+    .dev-group.selected .dev-body {
+      stroke: var(--accent); stroke-width: 2;
+      filter: drop-shadow(0 0 6px color-mix(in oklch, var(--accent) 40%, transparent));
+    }
     .dev-body {
       stroke: var(--border); stroke-width: 1.5;
-      transition: stroke 0.15s, stroke-width 0.15s;
+      transition: all var(--transition);
     }
     .dev-label {
       font-family: var(--font-mono);
@@ -224,28 +278,29 @@
       stroke: var(--muted);
       stroke-width: 1.2;
       cursor: crosshair;
-      transition: fill 0.1s;
+      transition: all var(--transition);
     }
-    .dev-port:hover { fill: var(--accent); stroke: var(--accent); }
+    .dev-port:hover { fill: var(--accent); stroke: var(--accent); transform-origin: center; }
     .conn-line {
       stroke: var(--muted);
       stroke-width: 2;
       fill: none;
       pointer-events: stroke;
       cursor: pointer;
-      transition: stroke 0.1s;
+      transition: all var(--transition);
+      stroke-linecap: round;
     }
     .conn-line:hover { stroke: var(--danger); stroke-width: 3; }
     .conn-line.selected-line { stroke: var(--accent); stroke-width: 3; }
 
     /* ─── status bar ──────────────────────────────────────────────── */
     .statusbar {
-      height: 28px; flex-shrink: 0;
+      height: 32px; flex-shrink: 0;
       background: var(--surface);
       border-top: 1px solid var(--border);
       display: flex; align-items: center;
       padding: 0 var(--gap-md);
-      font-family: var(--font-mono);
+      font-family: var(--font-body);
       font-size: var(--fs-xs);
       color: var(--muted);
       gap: var(--gap-lg);
@@ -267,29 +322,38 @@
 /* ─── result panel ──────────────────────────────────────────── */
 .result-panel {
   position: fixed; bottom: 0; left: 0; right: 0;
-  height: 200px;
-  background: var(--surface);
-  border-top: 2px solid var(--accent);
+  height: 210px;
+  background: oklch(100% 0 0 / 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   display: none; flex-direction: column;
   z-index: 100;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow-lg);
 }
 .result-panel.open { display: flex; }
 .result-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px var(--gap-md);
+  padding: 10px var(--gap-md);
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.05em;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 500;
 }
 .result-header .flow-selector {
   display: flex; align-items: center; gap: 8px;
 }
 .result-header select {
-  padding: 3px 6px; border: 1px solid var(--border);
-  border-radius: var(--radius); font: inherit; font-size: var(--fs-sm);
+  padding: 4px 8px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-sm);
   background: var(--bg); color: var(--fg);
+  transition: border-color var(--transition);
+}
+.result-header select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .result-table-wrap {
   flex: 1; overflow: auto; padding: 4px var(--gap-md);
@@ -299,15 +363,17 @@
   font-size: var(--fs-sm);
 }
 .result-table th {
-  text-align: left; padding: 6px 8px;
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-  color: var(--muted); letter-spacing: 0.04em;
+  text-align: left; padding: 7px 10px;
+  font-family: var(--font-display); font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted); letter-spacing: 0.03em;
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; background: var(--surface);
 }
 .result-table td {
-  padding: 5px 8px; border-bottom: 1px solid var(--border);
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
   font-family: var(--font-mono); font-size: var(--fs-xs);
+  transition: background var(--transition);
 }
 .result-table tr:hover td { background: var(--accent-soft); }
 .result-table tr.active-row td { background: var(--accent-soft); }
@@ -338,10 +404,10 @@
 }
 .chat-panel.collapsed { display: none; }
 .chat-header {
-  padding: 12px var(--gap-md);
+  padding: 14px var(--gap-md);
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-  letter-spacing: 0.05em; text-transform: uppercase;
+  font-family: var(--font-display); font-size: var(--fs-sm);
+  font-weight: 600; letter-spacing: 0.02em;
   display: flex; justify-content: space-between; align-items: center;
 }
 .chat-header span { color: var(--muted); }
@@ -351,19 +417,22 @@
   min-height: 0;
 }
 .chat-msg {
-  max-width: 100%; padding: 8px 12px;
-  border-radius: var(--radius);
-  font-size: var(--fs-sm); line-height: 1.5;
+  max-width: 100%; padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm); line-height: 1.55;
   white-space: pre-wrap; word-break: break-word;
 }
 .chat-msg.user {
   align-self: flex-end;
   background: var(--accent); color: #fff;
   max-width: 85%;
+  border-bottom-right-radius: var(--radius-sm);
 }
 .chat-msg.agent {
   align-self: flex-start;
   background: var(--bg); border: 1px solid var(--border);
+  border-bottom-left-radius: var(--radius-sm);
 }
 .chat-input-wrap {
   display: flex; padding: var(--gap);
@@ -371,21 +440,177 @@
   flex-shrink: 0;
 }
 .chat-input-wrap input {
-  flex: 1; padding: 8px 10px;
-  border: 1px solid var(--border); border-radius: var(--radius);
+  flex: 1; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
   font: inherit; font-size: var(--fs-sm);
   background: var(--bg); color: var(--fg);
+  transition: all var(--transition);
+}
+.chat-input-wrap input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .chat-input-wrap button {
-  padding: 8px 14px; border-radius: var(--radius);
+  padding: 9px 16px; border-radius: var(--radius-lg);
   background: var(--accent); color: #fff; border: none;
-  font-size: var(--fs-sm); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm);
+  font-weight: 600; cursor: pointer;
+  transition: all var(--transition);
+}
+.chat-input-wrap button:hover {
+  background: color-mix(in oklch, var(--accent) 85%, black);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--accent) 35%, transparent);
 }
 .chat-settings .prop-group label {
   display: block;
-  font-family: var(--font-mono); font-size: var(--fs-xs);
-  letter-spacing: 0.04em; text-transform: uppercase;
+  font-family: var(--font-display); font-size: var(--fs-xs);
+  font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
   color: var(--muted); margin-bottom: 2px;
+}
+
+/* trend panel */
+.trend-panel {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 120;
+  overflow: auto;
+  background: var(--bg);
+}
+.trend-panel.open { display: block; }
+.trend-shell {
+  max-width: 1280px;
+  margin: 16px auto;
+  padding: 0 16px 24px;
+}
+.trend-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.trend-title {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.15;
+}
+.trend-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.trend-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.trend-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.trend-stat,
+.trend-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.trend-stat { padding: 12px 14px; }
+.trend-stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.trend-stat-value {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--fg);
+}
+.trend-stat-note {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.trend-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.trend-card { padding: 14px; }
+.trend-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.trend-card-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+}
+.trend-card-subtitle {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.trend-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.trend-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+.trend-chart {
+  width: 100%;
+  min-height: 250px;
+}
+.trend-chart svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.trend-empty {
+  min-height: 250px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+@media (max-width: 960px) {
+  .trend-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trend-chart-grid { grid-template-columns: 1fr; }
+  .trend-header { flex-direction: column; }
+  .trend-actions { justify-content: flex-start; }
 }
 
   </style>
@@ -410,10 +635,15 @@
     <span style="flex:1;"></span>
     <button class="tb-btn" id="btn-chat-toggle" title="显示/隐藏 AI 助手">&#9991; AI 助手</button>
     <span class="sep"></span>
+    <label class="tb-toggle" title="勾选后使用 Docker/Mininet 实测，仅小拓扑启用">
+      <input type="checkbox" id="use-mininet" />
+      Mininet
+    </label>
     <button class="tb-btn accent" id="btn-deploy" title="部署到 Mininet 并运行推理">&#9654; 部署</button>
     <span class="sep"></span>
     <button class="tb-btn accent" id="btn-export" title="导出 JSON">导出</button>
     <button class="tb-btn" id="btn-import" title="导入 JSON">导入</button>
+    <button class="tb-btn" id="btn-trends" title="查看历史趋势">柱状图</button>
     <input type="file" id="import-file" accept=".json" style="display:none;" />
   </div>
 
@@ -519,6 +749,82 @@
         </thead>
         <tbody id="result-tbody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="trend-panel" id="trend-panel" aria-hidden="true">
+    <div class="trend-shell">
+      <div class="trend-header">
+        <div>
+          <div class="trend-kicker">历史趋势</div>
+          <h2 class="trend-title">模型路径 vs OSPF</h2>
+        </div>
+        <div class="trend-actions">
+          <button class="tb-btn" onclick="refreshTrendPanel()">刷新</button>
+          <button class="tb-btn danger" onclick="clearTrendHistory()">清空历史</button>
+          <button class="tb-btn" onclick="closeTrendPanel()">关闭</button>
+        </div>
+      </div>
+
+      <div class="trend-summary" id="trend-summary"></div>
+
+      <div class="trend-chart-grid">
+        <section class="trend-card">
+          <div class="trend-card-head">
+            <div>
+              <div class="trend-card-title">平均跳数</div>
+              <div class="trend-card-subtitle">path hop count</div>
+            </div>
+          </div>
+          <div class="trend-legend">
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#4C9AFF"></span>模型路径</span>
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#FF8B00"></span>OSPF</span>
+          </div>
+          <div class="trend-chart" id="trend-chart-hops"></div>
+        </section>
+
+        <section class="trend-card">
+          <div class="trend-card-head">
+            <div>
+              <div class="trend-card-title">平均端到端时延</div>
+              <div class="trend-card-subtitle">sum(delay)</div>
+            </div>
+          </div>
+          <div class="trend-legend">
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#4C9AFF"></span>模型路径</span>
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#FF8B00"></span>OSPF</span>
+          </div>
+          <div class="trend-chart" id="trend-chart-delay"></div>
+        </section>
+
+        <section class="trend-card">
+          <div class="trend-card-head">
+            <div>
+              <div class="trend-card-title">平均瓶颈带宽</div>
+              <div class="trend-card-subtitle">min(bandwidth)</div>
+            </div>
+          </div>
+          <div class="trend-legend">
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#4C9AFF"></span>模型路径</span>
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#FF8B00"></span>OSPF</span>
+          </div>
+          <div class="trend-chart" id="trend-chart-bandwidth"></div>
+        </section>
+
+        <section class="trend-card">
+          <div class="trend-card-head">
+            <div>
+              <div class="trend-card-title">平均路径拥塞</div>
+              <div class="trend-card-subtitle">max(utilization)</div>
+            </div>
+          </div>
+          <div class="trend-legend">
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#4C9AFF"></span>模型路径</span>
+            <span class="trend-legend-item"><span class="trend-legend-swatch" style="background:#FF8B00"></span>OSPF</span>
+          </div>
+          <div class="trend-chart" id="trend-chart-utilization"></div>
+        </section>
+      </div>
     </div>
   </div>
 
@@ -934,6 +1240,7 @@
     document.getElementById('btn-undo').addEventListener('click', undo);
     document.getElementById('btn-redo').addEventListener('click', redo);
     document.getElementById('btn-delete').addEventListener('click', deleteSelected);
+    document.getElementById('btn-trends').addEventListener('click', openTrendPanel);
 
     /* ─── zoom controls ───────────────────────────────────────────── */
     function updateZoomLabel() {
@@ -1113,13 +1420,16 @@
     /* ─── deploy ───────────────────────────────────────────────── */
     var API_BASE = '';  // same-origin, served from backend
     var deployResult = null;
+    var TREND_STORAGE_KEY = 'ai-router-trend-history-v1';
 
     document.getElementById('btn-deploy').addEventListener('click', function() {
       if (devices.length === 0) { alert('请先添加设备'); return; }
 
       var btn = document.getElementById('btn-deploy');
+      var useMininet = !!document.getElementById('use-mininet')?.checked;
+      var deployUrl = API_BASE + '/api/deploy' + (useMininet ? '?use_mininet=true' : '');
       btn.disabled = true;
-      btn.textContent = '部署中...';
+      btn.textContent = useMininet ? '实测中...' : '推理中...';
 
       // Build topology JSON with connection properties
       var topo = {
@@ -1127,7 +1437,7 @@
         connections: connections.map(function(c) { return { id: c.id, from: c.from, to: c.to, bandwidth: c.bandwidth || 100, delay: c.delay || 5 }; })
       };
 
-      fetch(API_BASE + '/api/deploy', {
+      fetch(deployUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(topo)
@@ -1153,8 +1463,376 @@
     /* ─── results display ──────────────────────────────────────── */
     var PATH_COLORS = ['#4C9AFF','#36B37E','#FF5630','#6554C0','#FF8B00','#00B8D9','#8777D9','#FFC400'];
 
+    function loadTrendHistory() {
+      try {
+        var raw = localStorage.getItem(TREND_STORAGE_KEY);
+        var parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveTrendHistory(history) {
+      try {
+        localStorage.setItem(TREND_STORAGE_KEY, JSON.stringify(history.slice(-60)));
+      } catch (e) {}
+    }
+
+    function formatTrendTime(value) {
+      var date = new Date(value);
+      if (isNaN(date.getTime())) return '';
+      var month = String(date.getMonth() + 1).padStart(2, '0');
+      var day = String(date.getDate()).padStart(2, '0');
+      var hour = String(date.getHours()).padStart(2, '0');
+      var minute = String(date.getMinutes()).padStart(2, '0');
+      return month + '-' + day + ' ' + hour + ':' + minute;
+    }
+
+    function formatTrendValue(value, digits, unit) {
+      if (value === null || value === undefined || !isFinite(value)) return '-';
+      var fixed = Number(value).toFixed(digits);
+      return unit ? fixed + unit : fixed;
+    }
+
+    function buildPathMetrics(path, edgeLookup, utilizationOverride) {
+      var metrics = {
+        hops: path && path.length > 1 ? path.length - 1 : 0,
+        delay: null,
+        bandwidth: null,
+        utilization: utilizationOverride !== null && utilizationOverride !== undefined
+          ? Number(utilizationOverride)
+          : null,
+      };
+      if (!path || path.length < 2) return metrics;
+
+      var totalDelay = 0;
+      var minBandwidth = Infinity;
+      var maxUtilization = 0;
+      var segmentCount = 0;
+
+      for (var i = 0; i < path.length - 1; i++) {
+        var key = path[i] + '|' + path[i + 1];
+        var edge = edgeLookup[key];
+        if (!edge) continue;
+        segmentCount += 1;
+        totalDelay += Number(edge.delay || 0);
+        minBandwidth = Math.min(minBandwidth, Number(edge.bandwidth || 0));
+        if (metrics.utilization === null) {
+          maxUtilization = Math.max(maxUtilization, Number(edge.utilization || 0));
+        }
+      }
+
+      if (segmentCount === 0) return metrics;
+
+      metrics.delay = totalDelay;
+      metrics.bandwidth = isFinite(minBandwidth) ? minBandwidth : null;
+      if (metrics.utilization === null) metrics.utilization = maxUtilization;
+      return metrics;
+    }
+
+    function pathsEqual(a, b) {
+      if (!a || !b || a.length !== b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    }
+
+    function modelLooksBetter(selected, ospf) {
+      if (!selected || !ospf) return false;
+      if (selected.utilization !== null && ospf.utilization !== null && selected.utilization < ospf.utilization - 0.0001) return true;
+      if (selected.delay !== null && ospf.delay !== null && selected.delay < ospf.delay - 0.0001) return true;
+      if (selected.bandwidth !== null && ospf.bandwidth !== null && selected.bandwidth > ospf.bandwidth + 0.0001) return true;
+      return false;
+    }
+
+    function summarizeDeploymentResult(result) {
+      var edgeLookup = {};
+      (result.topology_edges || []).forEach(function(edge) {
+        edgeLookup[edge.src + '|' + edge.dst] = edge;
+        edgeLookup[edge.dst + '|' + edge.src] = edge;
+      });
+
+      var selectedMetrics = [];
+      var ospfMetrics = [];
+      var changedSelectedMetrics = [];
+      var changedOspfMetrics = [];
+      var comparedFlows = 0;
+      var differentFlows = 0;
+      var betterFlows = 0;
+
+      (result.flows || []).forEach(function(flow) {
+        var selected = buildPathMetrics(flow.selected_path, edgeLookup, flow.max_link_utilization);
+        selectedMetrics.push(selected);
+        if (flow.ospf_path && flow.ospf_path.length) {
+          var ospf = buildPathMetrics(flow.ospf_path, edgeLookup, flow.ospf_max_link_utilization);
+          ospfMetrics.push(ospf);
+          comparedFlows += 1;
+          if (!pathsEqual(flow.selected_path, flow.ospf_path)) {
+            differentFlows += 1;
+            changedSelectedMetrics.push(selected);
+            changedOspfMetrics.push(ospf);
+          }
+          if (modelLooksBetter(selected, ospf)) betterFlows += 1;
+        }
+      });
+
+      function averageMetric(items, key) {
+        var values = items.map(function(item) { return item[key]; }).filter(function(value) {
+          return value !== null && value !== undefined && isFinite(value);
+        });
+        if (values.length === 0) return null;
+        return values.reduce(function(sum, value) { return sum + Number(value || 0); }, 0) / values.length;
+      }
+
+      var selectedUtilization = averageMetric(selectedMetrics, 'utilization');
+      var ospfUtilization = averageMetric(ospfMetrics, 'utilization');
+      var chartSelectedMetrics = changedSelectedMetrics.length ? changedSelectedMetrics : selectedMetrics;
+      var chartOspfMetrics = changedOspfMetrics.length ? changedOspfMetrics : ospfMetrics;
+      var chartSelectedUtilization = averageMetric(chartSelectedMetrics, 'utilization');
+      var chartOspfUtilization = averageMetric(chartOspfMetrics, 'utilization');
+
+      return {
+        jobId: result.job_id || '',
+        timestamp: new Date().toISOString(),
+        label: formatTrendTime(new Date()),
+        flowCount: (result.flows || []).length,
+        mininetUsed: !!result.mininet_used,
+        comparison: {
+          comparedFlows: comparedFlows,
+          differentFlows: differentFlows,
+          diffRate: comparedFlows ? differentFlows / comparedFlows * 100 : null,
+          betterFlows: betterFlows,
+          chartScope: changedSelectedMetrics.length ? 'changed' : 'all',
+          chartFlowCount: changedSelectedMetrics.length || comparedFlows,
+        },
+        selected: {
+          hops: averageMetric(selectedMetrics, 'hops'),
+          delay: averageMetric(selectedMetrics, 'delay'),
+          bandwidth: averageMetric(selectedMetrics, 'bandwidth'),
+          utilization: selectedUtilization === null ? null : selectedUtilization * 100,
+        },
+        ospf: {
+          hops: averageMetric(ospfMetrics, 'hops'),
+          delay: averageMetric(ospfMetrics, 'delay'),
+          bandwidth: averageMetric(ospfMetrics, 'bandwidth'),
+          utilization: ospfUtilization === null ? null : ospfUtilization * 100,
+        },
+        chartSelected: {
+          hops: averageMetric(chartSelectedMetrics, 'hops'),
+          delay: averageMetric(chartSelectedMetrics, 'delay'),
+          bandwidth: averageMetric(chartSelectedMetrics, 'bandwidth'),
+          utilization: chartSelectedUtilization === null ? null : chartSelectedUtilization * 100,
+        },
+        chartOspf: {
+          hops: averageMetric(chartOspfMetrics, 'hops'),
+          delay: averageMetric(chartOspfMetrics, 'delay'),
+          bandwidth: averageMetric(chartOspfMetrics, 'bandwidth'),
+          utilization: chartOspfUtilization === null ? null : chartOspfUtilization * 100,
+        },
+      };
+    }
+
+    function recordTrendSample(result) {
+      if (!result || !result.flows || !result.flows.length) return;
+      var history = loadTrendHistory();
+      history.push(summarizeDeploymentResult(result));
+      saveTrendHistory(history);
+    }
+
+    function renderTrendSummary(history) {
+      var summary = document.getElementById('trend-summary');
+      if (!summary) return;
+
+      if (!history.length) {
+        summary.innerHTML =
+          '<div class="trend-stat"><div class="trend-stat-label">差异率</div><div class="trend-stat-value">-</div><div class="trend-stat-note">model vs OSPF paths</div></div>' +
+          '<div class="trend-stat"><div class="trend-stat-label">拥塞收益</div><div class="trend-stat-value">-</div><div class="trend-stat-note">OSPF - model max util</div></div>' +
+          '<div class="trend-stat"><div class="trend-stat-label">跳数</div><div class="trend-stat-value">-</div><div class="trend-stat-note">model avg hops</div></div>' +
+          '<div class="trend-stat"><div class="trend-stat-label">时延</div><div class="trend-stat-value">-</div><div class="trend-stat-note">model avg delay</div></div>' +
+          '<div class="trend-stat"><div class="trend-stat-label">带宽</div><div class="trend-stat-value">-</div><div class="trend-stat-note">model bottleneck bw</div></div>' +
+          '<div class="trend-stat"><div class="trend-stat-label">拥塞</div><div class="trend-stat-value">-</div><div class="trend-stat-note">model max util</div></div>';
+        return;
+      }
+
+      var latest = history[history.length - 1];
+      var comparison = latest.comparison || {};
+      var comparedFlows = comparison.comparedFlows || latest.flowCount || 0;
+      var diffText = comparison.diffRate === null || comparison.diffRate === undefined
+        ? '-'
+        : formatTrendValue(comparison.diffRate, 1, '%');
+      var diffNote = comparison.differentFlows === null || comparison.differentFlows === undefined
+        ? 'model vs OSPF paths'
+        : comparison.differentFlows + '/' + comparedFlows + ' paths differ';
+      var summarySelected = latest.chartSelected || latest.selected;
+      var summaryOspf = latest.chartOspf || latest.ospf;
+      var utilGain = summarySelected.utilization !== null && summarySelected.utilization !== undefined &&
+        summaryOspf.utilization !== null && summaryOspf.utilization !== undefined
+        ? summaryOspf.utilization - summarySelected.utilization
+        : null;
+      var utilGainText = utilGain === null
+        ? '-'
+        : (utilGain > 0 ? '+' : '') + formatTrendValue(utilGain, 1, 'pp');
+      var scopeNote = comparison.chartScope === 'changed'
+        ? '改路流量'
+        : '全部流量';
+      summary.innerHTML =
+        '<div class="trend-stat"><div class="trend-stat-label">差异率</div><div class="trend-stat-value">' + diffText + '</div><div class="trend-stat-note">' + diffNote + '</div></div>' +
+        '<div class="trend-stat"><div class="trend-stat-label">拥塞收益</div><div class="trend-stat-value">' + utilGainText + '</div><div class="trend-stat-note">' + scopeNote + ' OSPF - model</div></div>' +
+        '<div class="trend-stat"><div class="trend-stat-label">跳数</div><div class="trend-stat-value">' + formatTrendValue(summarySelected.hops, 1, '') + '</div><div class="trend-stat-note">' + scopeNote + ' model avg hops</div></div>' +
+        '<div class="trend-stat"><div class="trend-stat-label">时延</div><div class="trend-stat-value">' + formatTrendValue(summarySelected.delay, 1, 'ms') + '</div><div class="trend-stat-note">' + scopeNote + ' model avg delay</div></div>' +
+        '<div class="trend-stat"><div class="trend-stat-label">带宽</div><div class="trend-stat-value">' + formatTrendValue(summarySelected.bandwidth, 1, 'Mbps') + '</div><div class="trend-stat-note">' + scopeNote + ' model bottleneck bw</div></div>' +
+        '<div class="trend-stat"><div class="trend-stat-label">拥塞</div><div class="trend-stat-value">' + formatTrendValue(summarySelected.utilization, 1, '%') + '</div><div class="trend-stat-note">' + scopeNote + ' model max util</div></div>';
+    }
+
+    function renderBarChart(containerId, title, unitLabel, history, metricKey) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+
+      if (!history.length) {
+        container.innerHTML = '<div class="trend-empty">暂无历史记录</div>';
+        return;
+      }
+
+      var seriesDefs = [
+        { key: 'selected', label: '模型路径', color: '#4C9AFF' },
+        { key: 'ospf', label: 'OSPF', color: '#FF8B00' },
+      ];
+      var width = 760;
+      var height = 240;
+      var padding = { top: 18, right: 18, bottom: 40, left: 52 };
+      var plotWidth = width - padding.left - padding.right;
+      var plotHeight = height - padding.top - padding.bottom;
+
+      var visibleHistory = history.slice(-24);
+      var points = visibleHistory.map(function(entry, index) {
+        var selectedSeries = entry.chartSelected || entry.selected;
+        var ospfSeries = entry.chartOspf || entry.ospf;
+        return {
+          index: index,
+          label: entry.label,
+          selected: selectedSeries[metricKey],
+          ospf: ospfSeries[metricKey],
+        };
+      });
+
+      var values = [];
+      points.forEach(function(point) {
+        seriesDefs.forEach(function(series) {
+          var value = point[series.key];
+          if (value !== null && value !== undefined && isFinite(value)) values.push(Number(value));
+        });
+      });
+
+      if (!values.length) {
+        container.innerHTML = '<div class="trend-empty">暂无有效数据</div>';
+        return;
+      }
+
+      var min = 0;
+      var max = Math.max.apply(null, values);
+      max = max === 0 ? 1 : max * 1.18;
+      if (metricKey === 'utilization') max = Math.max(max, 1);
+
+      function yFor(value) {
+        var clamped = Math.max(min, Math.min(max, Number(value)));
+        return padding.top + (max - clamped) / (max - min) * plotHeight;
+      }
+      var zeroY = yFor(0);
+      var groupWidth = plotWidth / points.length;
+      var barGap = Math.max(2, Math.min(6, groupWidth * 0.08));
+      var barWidth = Math.max(5, Math.min(18, (groupWidth - barGap) * 0.28));
+      var groupBarsWidth = seriesDefs.length * barWidth + (seriesDefs.length - 1) * barGap;
+
+      function groupCenter(index) {
+        return padding.left + groupWidth * (index + 0.5);
+      }
+
+      var gridLines = '';
+      for (var i = 0; i <= 4; i++) {
+        var ratio = i / 4;
+        var y = padding.top + ratio * plotHeight;
+        var value = max - ratio * (max - min);
+        gridLines +=
+          '<line x1="' + padding.left + '" y1="' + y.toFixed(2) + '" x2="' + (width - padding.right) + '" y2="' + y.toFixed(2) + '" stroke="rgba(148,163,184,0.22)" stroke-dasharray="4 4" />' +
+          '<text x="' + (padding.left - 10) + '" y="' + (y + 4).toFixed(2) + '" text-anchor="end" fill="var(--muted)" font-size="10" font-family="var(--font-mono)">' + formatTrendValue(value, metricKey === 'bandwidth' ? 0 : 1, metricKey === 'utilization' ? '%' : '') + '</text>';
+      }
+
+      var xLabels = '';
+      var labelStep = points.length <= 6 ? 1 : Math.ceil(points.length / 6);
+      points.forEach(function(point) {
+        if (point.index !== 0 && point.index !== points.length - 1 && point.index % labelStep !== 0) return;
+        var x = groupCenter(point.index);
+        xLabels += '<text x="' + x.toFixed(2) + '" y="' + (height - 12) + '" text-anchor="middle" fill="var(--muted)" font-size="10" font-family="var(--font-mono)">' + point.label + '</text>';
+      });
+
+      var bars = '';
+      points.forEach(function(point) {
+        var center = groupCenter(point.index);
+        seriesDefs.forEach(function(series, seriesIndex) {
+          var value = point[series.key];
+          if (value === null || value === undefined || !isFinite(value)) return;
+          var y = yFor(value);
+          var x = center - groupBarsWidth / 2 + seriesIndex * (barWidth + barGap);
+          var barHeight = Math.max(0, zeroY - y);
+          bars += '<rect x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + barWidth.toFixed(2) + '" height="' + barHeight.toFixed(2) + '" rx="2" fill="' + series.color + '"><title>' + series.label + ' · ' + point.label + ' · ' + formatTrendValue(value, metricKey === 'bandwidth' ? 0 : 2, unitLabel) + '</title></rect>';
+          if (points.length <= 8) {
+            bars += '<text x="' + (x + barWidth / 2).toFixed(2) + '" y="' + Math.max(10, y - 5).toFixed(2) + '" text-anchor="middle" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">' + formatTrendValue(value, metricKey === 'bandwidth' ? 0 : 1, '') + '</text>';
+          }
+        });
+      });
+
+      container.innerHTML =
+        '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" role="img" aria-label="' + title + '">' +
+          '<text x="' + padding.left + '" y="16" fill="var(--muted)" font-size="10" font-family="var(--font-mono)">' + unitLabel + '</text>' +
+          '<line x1="' + padding.left + '" y1="' + padding.top + '" x2="' + padding.left + '" y2="' + (height - padding.bottom) + '" stroke="rgba(148,163,184,0.35)" />' +
+          '<line x1="' + padding.left + '" y1="' + (height - padding.bottom) + '" x2="' + (width - padding.right) + '" y2="' + (height - padding.bottom) + '" stroke="rgba(148,163,184,0.35)" />' +
+          gridLines +
+          xLabels +
+          bars +
+        '</svg>';
+    }
+
+    function renderTrendPanel() {
+      var history = loadTrendHistory();
+      renderTrendSummary(history);
+      renderBarChart('trend-chart-hops', '平均跳数', 'hop', history, 'hops');
+      renderBarChart('trend-chart-delay', '平均端到端时延', 'ms', history, 'delay');
+      renderBarChart('trend-chart-bandwidth', '平均瓶颈带宽', 'Mbps', history, 'bandwidth');
+      renderBarChart('trend-chart-utilization', '平均路径拥塞', '%', history, 'utilization');
+    }
+
+    function openTrendPanel() {
+      var panel = document.getElementById('trend-panel');
+      if (!panel) return;
+      panel.classList.add('open');
+      panel.setAttribute('aria-hidden', 'false');
+      renderTrendPanel();
+    }
+
+    function closeTrendPanel() {
+      var panel = document.getElementById('trend-panel');
+      if (!panel) return;
+      panel.classList.remove('open');
+      panel.setAttribute('aria-hidden', 'true');
+    }
+
+    function refreshTrendPanel() {
+      renderTrendPanel();
+    }
+
+    function clearTrendHistory() {
+      if (!confirm('确认清空所有历史趋势记录吗？')) return;
+      try {
+        localStorage.removeItem(TREND_STORAGE_KEY);
+      } catch (e) {}
+      renderTrendPanel();
+    }
+
     function showResults(result) {
       deployResult = result;
+      recordTrendSample(result);
       var panel = document.getElementById('result-panel');
       var tbody = document.getElementById('result-tbody');
       var select = document.getElementById('flow-select');
@@ -1165,8 +1843,14 @@
       // Mininet status badge
       var mnBadge = document.getElementById('mininet-badge');
       if (mnBadge) {
-        if (result.mininet_used) {
-          mnBadge.textContent = 'Mininet 实测';
+        var hasMeasuredBw = (result.flows || []).some(function(f) {
+          return f.measured_bw !== null && f.measured_bw !== undefined && Number(f.measured_bw) > 0;
+        });
+        if (result.mininet_used && hasMeasuredBw) {
+          mnBadge.textContent = 'Mininet BW 实测';
+          mnBadge.style.background = '#36B37E';
+        } else if (result.mininet_used) {
+          mnBadge.textContent = 'Mininet RTT 实测';
           mnBadge.style.background = '#36B37E';
         } else {
           mnBadge.textContent = '仅模型推理';
@@ -1429,28 +2113,37 @@
       setMode('select');
 
       // pre-populate sample topology
-      var r1 = addDevice('router', 400, 80);
-      r1.label = 'Core Router'; r1.ip = '10.0.0.1';
-      var fw = addDevice('firewall', 400, 220);
-      fw.label = 'Edge FW'; fw.ip = '10.0.0.2';
-      var sw = addDevice('switch', 400, 360);
-      sw.label = 'Core Switch'; sw.ip = '10.0.1.1';
-      var s1 = addDevice('server', 160, 500);
-      s1.label = 'Web-01'; s1.ip = '10.0.2.10';
-      var s2 = addDevice('server', 400, 500);
-      s2.label = 'App-01'; s2.ip = '10.0.2.20';
-      var s3 = addDevice('server', 640, 500);
-      s3.label = 'DB-01'; s3.ip = '10.0.2.30';
-      var lb = addDevice('lb', 160, 220);
-      lb.label = 'LB-01'; lb.ip = '10.0.0.10';
+      var client = addDevice('server', 80, 260);
+      client.label = 'Client-A'; client.ip = '10.0.0.10';
+      var access = addDevice('switch', 220, 260);
+      access.label = 'Access-SW'; access.ip = '10.0.0.1';
+      var core1 = addDevice('router', 360, 170);
+      core1.label = 'Core-R1'; core1.ip = '10.0.1.1';
+      var core2 = addDevice('router', 360, 350);
+      core2.label = 'Core-R2'; core2.ip = '10.0.1.2';
+      var agg = addDevice('switch', 520, 260);
+      agg.label = 'Agg-SW'; agg.ip = '10.0.2.1';
+      var app = addDevice('server', 680, 260);
+      app.label = 'App-Server'; app.ip = '10.0.2.20';
+      var cache = addDevice('server', 520, 430);
+      cache.label = 'Cache-01'; cache.ip = '10.0.3.10';
+      var db = addDevice('database', 680, 430);
+      db.label = 'DB-01'; db.ip = '10.0.3.20';
 
       connections.push(
-        { id: 'conn-1', from: { devId: r1.id, port: 'bottom' }, to: { devId: fw.id, port: 'top' } },
-        { id: 'conn-2', from: { devId: fw.id, port: 'bottom' }, to: { devId: sw.id, port: 'top' } },
-        { id: 'conn-3', from: { devId: sw.id, port: 'bottom' }, to: { devId: s1.id, port: 'top' } },
-        { id: 'conn-4', from: { devId: sw.id, port: 'bottom' }, to: { devId: s2.id, port: 'top' } },
-        { id: 'conn-5', from: { devId: sw.id, port: 'bottom' }, to: { devId: s3.id, port: 'top' } },
-        { id: 'conn-6', from: { devId: lb.id, port: 'right' }, to: { devId: fw.id, port: 'left' } }
+        { id: 'conn-1', from: { devId: client.id, port: 'right' }, to: { devId: access.id, port: 'left' }, bandwidth: 100, delay: 2 },
+        { id: 'conn-2', from: { devId: client.id, port: 'top' }, to: { devId: core2.id, port: 'left' }, bandwidth: 50, delay: 2 },
+        { id: 'conn-3', from: { devId: client.id, port: 'right' }, to: { devId: core1.id, port: 'left' }, bandwidth: 30, delay: 1 },
+        { id: 'conn-4', from: { devId: client.id, port: 'bottom' }, to: { devId: agg.id, port: 'left' }, bandwidth: 40, delay: 2 },
+        { id: 'conn-5', from: { devId: access.id, port: 'right' }, to: { devId: core1.id, port: 'left' }, bandwidth: 80, delay: 2 },
+        { id: 'conn-6', from: { devId: access.id, port: 'bottom' }, to: { devId: app.id, port: 'left' }, bandwidth: 100, delay: 2 },
+        { id: 'conn-7', from: { devId: core1.id, port: 'right' }, to: { devId: app.id, port: 'left' }, bandwidth: 300, delay: 1 },
+        { id: 'conn-8', from: { devId: core1.id, port: 'bottom' }, to: { devId: agg.id, port: 'top' }, bandwidth: 150, delay: 3 },
+        { id: 'conn-9', from: { devId: core1.id, port: 'bottom' }, to: { devId: cache.id, port: 'top' }, bandwidth: 200, delay: 1 },
+        { id: 'conn-10', from: { devId: core2.id, port: 'right' }, to: { devId: agg.id, port: 'left' }, bandwidth: 300, delay: 2 },
+        { id: 'conn-11', from: { devId: core2.id, port: 'bottom' }, to: { devId: cache.id, port: 'left' }, bandwidth: 30, delay: 1 },
+        { id: 'conn-12', from: { devId: agg.id, port: 'right' }, to: { devId: app.id, port: 'left' }, bandwidth: 300, delay: 1 },
+        { id: 'conn-13', from: { devId: agg.id, port: 'bottom' }, to: { devId: db.id, port: 'left' }, bandwidth: 300, delay: 1 }
       );
       nextId = 100;
       undoStack = [];

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+from typing import Any, TypedDict
 
+from langgraph.graph import END, START, StateGraph
 from openai import OpenAI
 
 from schemas.models import TopologyJSON, DeploymentResult, ChatResponse
@@ -102,9 +104,120 @@ TOOLS = [
 ]
 
 
+class AgentGraphState(TypedDict, total=False):
+    message: str
+    topology: TopologyJSON | None
+    on_topology: Any
+    on_traffic: Any
+    on_deploy: Any
+    client: OpenAI
+    messages: list[dict]
+    llm_message: Any
+    reply: str
+    result_topology: TopologyJSON | None
+    result_data: DeploymentResult | None
+    response: ChatResponse
+
+
 class AgentOrchestrator:
     def __init__(self):
         self.model = "gpt-4o"
+        self._graph = self._build_graph()
+
+    def _build_graph(self):
+        workflow = StateGraph(AgentGraphState)
+        workflow.add_node("prepare_messages", self._prepare_messages_node)
+        workflow.add_node("call_model", self._call_model_node)
+        workflow.add_node("execute_tools", self._execute_tools_node)
+        workflow.add_node("build_response", self._build_response_node)
+        workflow.add_edge(START, "prepare_messages")
+        workflow.add_edge("prepare_messages", "call_model")
+        workflow.add_conditional_edges(
+            "call_model",
+            self._route_after_model,
+            {
+                "execute_tools": "execute_tools",
+                "build_response": "build_response",
+            },
+        )
+        workflow.add_edge("execute_tools", "build_response")
+        workflow.add_edge("build_response", END)
+        return workflow.compile()
+
+    def _prepare_messages_node(self, state: AgentGraphState) -> dict:
+        topology = state.get("topology")
+        context = "The user is interacting with the AI Router topology editor."
+        if topology:
+            context += f"\nCurrent topology: {len(topology.devices)} devices, {len(topology.connections)} connections."
+        context += "\n\nUser message: " + state.get("message", "")
+
+        return {
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": context},
+            ]
+        }
+
+    def _call_model_node(self, state: AgentGraphState) -> dict:
+        msg = self._call_llm(
+            state["client"],
+            self.model,
+            state["messages"],
+            max_tokens=2048,
+            tools=TOOLS,
+        )
+        return {"llm_message": msg, "reply": msg.content or ""}
+
+    @staticmethod
+    def _route_after_model(state: AgentGraphState) -> str:
+        return "execute_tools" if getattr(state.get("llm_message"), "tool_calls", None) else "build_response"
+
+    def _execute_tools_node(self, state: AgentGraphState) -> dict:
+        result_topology = None
+        result_data = None
+        text_results = []
+
+        for tc in getattr(state.get("llm_message"), "tool_calls", None) or []:
+            name = tc.function.name
+            args = json.loads(tc.function.arguments)
+            tool_result = self._execute_tool(
+                state["client"],
+                name,
+                args,
+                state.get("topology"),
+                state.get("on_topology"),
+                state.get("on_traffic"),
+                state.get("on_deploy"),
+            )
+            if isinstance(tool_result, TopologyJSON):
+                result_topology = tool_result
+            elif isinstance(tool_result, DeploymentResult):
+                result_data = tool_result
+            elif isinstance(tool_result, str) and tool_result.strip():
+                text_results.append(tool_result.strip())
+
+        reply = state.get("reply", "")
+        if not reply and text_results:
+            reply = "\n\n".join(text_results)
+
+        return {
+            "reply": reply,
+            "result_topology": result_topology,
+            "result_data": result_data,
+        }
+
+    @staticmethod
+    def _build_response_node(state: AgentGraphState) -> dict:
+        result_topology = state.get("result_topology")
+        result_data = state.get("result_data")
+        return {
+            "response": ChatResponse(
+                reply=(state.get("reply") or "").strip(),
+                action="load_topology" if result_topology else ("show_results" if result_data else None),
+                topology=result_topology,
+                results=result_data,
+            )
+        }
 
     def _get_client(self, api_key: str | None = None, base_url: str | None = None) -> OpenAI:
         kwargs = {}
@@ -116,7 +229,7 @@ class AgentOrchestrator:
 
     @staticmethod
     def _call_llm(client: OpenAI, model: str, messages: list[dict],
-                  max_tokens: int = 2048, tools: list[dict] | None = None) -> str:
+                  max_tokens: int = 2048, tools: list[dict] | None = None) -> Any:
         """Make a single LLM call and return the text response."""
         kwargs = dict(model=model, messages=messages, max_tokens=max_tokens)
         if tools:
@@ -135,45 +248,17 @@ class AgentOrchestrator:
         base_url: str | None = None,
     ) -> ChatResponse:
         client = self._get_client(api_key, base_url)
-
-        context = "The user is interacting with the AI Router topology editor."
-        if topology:
-            context += f"\nCurrent topology: {len(topology.devices)} devices, {len(topology.connections)} connections."
-        context += "\n\nUser message: " + message
-
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": context},
-        ]
-
-        msg = self._call_llm(client, self.model, messages, max_tokens=2048, tools=TOOLS)
-
-        result_topology = None
-        result_data = None
-        reply = msg.content or ""
-
-        # Process tool calls
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                name = tc.function.name
-                args = json.loads(tc.function.arguments)
-
-                tool_result = self._execute_tool(
-                    client, name, args,
-                    topology, on_topology, on_traffic, on_deploy,
-                )
-                if tool_result:
-                    if isinstance(tool_result, TopologyJSON):
-                        result_topology = tool_result
-                    elif isinstance(tool_result, DeploymentResult):
-                        result_data = tool_result
-
-        return ChatResponse(
-            reply=reply.strip(),
-            action="load_topology" if result_topology else ("show_results" if result_data else None),
-            topology=result_topology,
-            results=result_data,
+        state = self._graph.invoke(
+            {
+                "message": message,
+                "topology": topology,
+                "on_topology": on_topology,
+                "on_traffic": on_traffic,
+                "on_deploy": on_deploy,
+                "client": client,
+            }
         )
+        return state["response"]
 
     def _execute_tool(
         self, client: OpenAI, name: str, args: dict,

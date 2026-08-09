@@ -7,9 +7,6 @@ build/
 .venv/
 venv/
 
-# uv
-uv.lock
-
 # IDE
 .vscode/
 .idea/
@@ -24,6 +21,9 @@ Thumbs.db
 
 # Artifacts
 *.artifact.json
+.codex-server-*.log
+.playwright-mcp/
+ui-after-softening.png
 
 # Dependencies (backend uses pyproject.toml + uv)
 backend/requirements.txt

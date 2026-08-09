@@ -19,7 +19,7 @@ from mininet.templates import generate_mininet_script, build_nx_graph
 
 log = logging.getLogger("ai-router.mininet")
 MININET_IMAGE = "iwaseyusuke/mininet:latest"
-MININET_EXEC_TIMEOUT = 120  # seconds — iperf tests can take a while
+MININET_EXEC_TIMEOUT = 60  # seconds — concurrent iperf, max ~3s test + overhead
 
 
 def check_docker_available() -> bool:
@@ -58,19 +58,25 @@ class MininetManager:
         container_name = f"mininet-{uuid.uuid4().hex[:8]}"
         script = generate_mininet_script(topology)
 
-        # Build edge list for per-link RTT measurement
+        # Build edge list for per-link RTT measurement (use Mininet hostnames)
+        hostname_map: dict[str, str] = {}
+        for i, dev in enumerate(topology.devices):
+            hostname_map[dev.id] = f"h{i + 1}"
         edges_for_env = []
         for conn in topology.connections:
-            edges_for_env.append({"src": conn.from_.devId, "dst": conn.to.devId})
+            edges_for_env.append({
+                "src": hostname_map[conn.from_.devId],
+                "dst": hostname_map[conn.to.devId],
+            })
 
         # Write script and flows to temp directory
         tmpdir = tempfile.mkdtemp(prefix="mininet-")
         script_path = os.path.join(tmpdir, "topo.py")
         flows_path = os.path.join(tmpdir, "flows.json")
 
-        with open(script_path, "w") as f:
+        with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
-        with open(flows_path, "w") as f:
+        with open(flows_path, "w", encoding="utf-8") as f:
             json.dump(flows, f)
         log.info("Generated Mininet script (%d bytes) + %d flows at %s",
                  len(script), len(flows), tmpdir)
@@ -94,7 +100,7 @@ class MininetManager:
         # Actually run the topology script and wait for completion
         log.info("Running Mininet topology script (timeout=%ds)...", MININET_EXEC_TIMEOUT)
         exit_code, output = container.exec_run(
-            "python /tmp/topo/topo.py",
+            "python3 /tmp/topo/topo.py",
             stdout=True,
             stderr=True,
             demux=False,

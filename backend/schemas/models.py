@@ -44,6 +44,7 @@ class FlowResult(BaseModel):
     hops: int
     max_link_utilization: float
     ospf_path: list[int] | None = None
+    ospf_max_link_utilization: float | None = None
     measured_bw: float | None = None  # Mbps, from Mininet iperf (None if Mininet not used)
 
 
@@ -53,7 +54,7 @@ class MininetFlowMeasurement(BaseModel):
     src: str  # Mininet hostname, e.g. "h1"
     dst: str
     bw_req: float
-    measured_bw: float  # actual iperf throughput in Mbps
+    measured_bw: float | None  # actual iperf throughput in Mbps, None if not measurable
 
 
 class DeploymentResult(BaseModel):

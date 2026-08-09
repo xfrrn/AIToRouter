@@ -60,6 +60,14 @@ def test_flow_generation():
     print("PASS: flow_generation")
 
 
+def test_capacity_aware_flow_generation():
+    """Test that high-capacity topologies produce visible traffic pressure."""
+    flows = generate_flows(5, num_flows=10, seed=42, link_bandwidths=[1000, 10000])
+    assert len(flows) == 10
+    assert max(f["bw_req"] for f in flows) > 40.0
+    print("PASS: capacity_aware_flow_generation")
+
+
 def test_mininet_script():
     """Test Mininet script generation."""
     topo = TopologyJSON(
@@ -96,6 +104,22 @@ def test_inference_import():
     print("PASS: inference_import (lazy load works)")
 
 
+def test_agent_langgraph_compile():
+    """Test that the Agent LangGraph workflow runs without calling an external LLM."""
+    from agent.orchestrator import AgentOrchestrator
+
+    class FakeMessage:
+        content = "pong"
+        tool_calls = None
+
+    agent = AgentOrchestrator()
+    agent._call_llm = lambda *args, **kwargs: FakeMessage()
+    response = agent.chat("ping", api_key="sk-test")
+    assert response.reply == "pong"
+    assert response.action is None
+    print("PASS: agent_langgraph_compile")
+
+
 def test_topology_json_parsing():
     """Test that frontend JSON format parses correctly with Pydantic."""
     # This simulates the JSON the frontend would send
@@ -125,7 +149,9 @@ def test_topology_json_parsing():
 if __name__ == "__main__":
     test_topology_to_nx()
     test_flow_generation()
+    test_capacity_aware_flow_generation()
     test_mininet_script()
     test_inference_import()
+    test_agent_langgraph_compile()
     test_topology_json_parsing()
     print("\nAll integration tests passed!")

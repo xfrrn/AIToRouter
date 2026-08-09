@@ -25,25 +25,46 @@ if str(_NETWORK_RL_ROOT) not in sys.path:
 _make_encoder = None
 _PathPooler = None
 _KPathScorer = None
+_TOPOLOGY_CONFIGS = None
 
 
 def _ensure_xchirl():
-    global _make_encoder, _PathPooler, _KPathScorer
+    global _make_encoder, _PathPooler, _KPathScorer, _TOPOLOGY_CONFIGS
     if _make_encoder is None:
         from xchirl.utils.make_component_ppo import make_encoder
         from xchirl.modules.encoders import PathPooler
         from xchirl.modules.scorers import KPathScorer
+        from xchirl.envs.topology_configs import TOPOLOGY_CONFIGS
         _make_encoder = make_encoder
         _PathPooler = PathPooler
         _KPathScorer = KPathScorer
+        _TOPOLOGY_CONFIGS = TOPOLOGY_CONFIGS
 
-# Normalization constants from api introduction.md
+# Fallback normalization constants from api introduction.md.
 DELAY_MU, DELAY_SIG = 10.5, 5.5
 BW_MU, BW_SIG = 65.0, 20.2
 
 
+def _strip_prefixed_state_dict(state_dict, prefix: str) -> dict:
+    return {
+        key[len(prefix):]: value
+        for key, value in state_dict.items()
+        if key.startswith(prefix)
+    }
+
+
+def _infer_metrics_dim(state_dict, hidden_dim: int) -> int:
+    for key, value in state_dict.items():
+        if key.endswith("to_features.0.weight") and value.ndim == 2:
+            return int(value.shape[1] - hidden_dim)
+    for key, value in state_dict.items():
+        if key.endswith("films.0.to_gamma.0.weight") and value.ndim == 2:
+            return int(value.shape[1])
+    return 2
+
+
 class Policy:
-    """XCHiRL routing policy model (P4 mode, metrics dim=2)."""
+    """XCHiRL routing policy model."""
 
     def __init__(self, ckpt_path: str, device: str = "cpu"):
         import torch
@@ -54,17 +75,28 @@ class Policy:
 
         hidden_dim = hp.get("hidden_dim", 256)
         kind = hp.get("encoder_kind", "film_gnn")
+        heads = hp.get("heads", 1)
+        topo_cfg = (_TOPOLOGY_CONFIGS or {}).get(hp.get("topo"), {})
+
+        self.metrics_dim = _infer_metrics_dim(data["actor_state_dict"], hidden_dim)
+        self.delay_mu = topo_cfg.get("DELAY_MU", DELAY_MU)
+        self.delay_sig = topo_cfg.get("DELAY_SIG", DELAY_SIG)
+        self.bw_mu = topo_cfg.get("BANDWIDTH_MU", BW_MU)
+        self.bw_sig = topo_cfg.get("BANDWIDTH_SIG", BW_SIG)
 
         self.encoder = _make_encoder(
-            hidden_dim, hp.get("layer_num", 4), kind=kind, heads=hp.get("heads", 1)
+            hidden_dim, hp.get("layer_num", 4), kind=kind, heads=heads
         )
-        self.pooler = _PathPooler(hidden_dim=hidden_dim)
+        self.pooler = _PathPooler(hidden_dim=hidden_dim, heads=heads)
         self.scorer = _KPathScorer(hidden_dim=hidden_dim)
 
         sd = data["actor_state_dict"]
-        self.encoder.load_state_dict(sd, strict=False)
-        self.pooler.load_state_dict(sd, strict=False)
-        self.scorer.load_state_dict(sd, strict=False)
+        encoder_sd = _strip_prefixed_state_dict(sd, "module.0.module.0.module.")
+        pooler_sd = _strip_prefixed_state_dict(sd, "module.0.module.1.module.")
+        scorer_sd = _strip_prefixed_state_dict(sd, "module.0.module.2.module.")
+        self.encoder.load_state_dict(encoder_sd or sd, strict=False)
+        self.pooler.load_state_dict(pooler_sd or sd, strict=False)
+        self.scorer.load_state_dict(scorer_sd or sd, strict=False)
 
         self.encoder.eval()
         self.pooler.eval()
@@ -134,10 +166,14 @@ class InferenceEngine:
 
         # Build directed edge index [2, E]
         edges = []
+        edge_to_idx = {}
         edge_bandwidths = {}
         edge_delays = {}
         for u, v in G.edges():
-            edges += [(u, v), (v, u)]
+            edge_to_idx[(u, v)] = len(edges)
+            edges.append((u, v))
+            edge_to_idx[(v, u)] = len(edges)
+            edges.append((v, u))
             bw = G[u][v].get("bandwidth", 100.0)
             delay = G[u][v].get("delay", 5.0)
             edge_bandwidths[(u, v)] = bw
@@ -152,9 +188,9 @@ class InferenceEngine:
         for u, v in edges:
             d = edge_delays[(u, v)]
             c = edge_bandwidths[(u, v)]
-            delay_norm_list.append((d - DELAY_MU) / DELAY_SIG)
+            delay_norm_list.append((d - self.policy.delay_mu) / self.policy.delay_sig)
             util_list.append(0.0)  # initial utilization
-            bw_norm_list.append((c - BW_MU) / BW_SIG)
+            bw_norm_list.append((c - self.policy.bw_mu) / self.policy.bw_sig)
 
         features = torch.tensor(
             np.stack([delay_norm_list, util_list, bw_norm_list], axis=-1),
@@ -212,11 +248,14 @@ class InferenceEngine:
             x[src, 0] = 1.0
             x[dst, 1] = 1.0
 
-            # Flow metrics [2]: phi, bw_req_norm
-            metrics = torch.tensor(
-                [phi, (bw_req - BW_MU) / BW_SIG],
-                device=self.device,
-            )
+            bw_req_norm = (bw_req - self.policy.bw_mu) / self.policy.bw_sig
+            if self.policy.metrics_dim == 3:
+                delay_req = flow.get("delay_req", flow.get("delay", 100.0))
+                delay_req_norm = (delay_req - self.policy.delay_mu) / self.policy.delay_sig
+                metrics_values = [delay_req_norm, phi, bw_req_norm]
+            else:
+                metrics_values = [phi, bw_req_norm]
+            metrics = torch.tensor(metrics_values, device=self.device)
 
             # Inference
             action, logits = self.policy.forward(
@@ -238,25 +277,21 @@ class InferenceEngine:
             for i in range(len(selected) - 1):
                 u, v = selected[i], selected[i + 1]
                 for eid_dir in [(u, v), (v, u)]:
-                    try:
-                        eid = edges.index(eid_dir)
+                    eid = edge_to_idx.get(eid_dir)
+                    if eid is not None:
                         c = edge_bandwidths.get(eid_dir, 100.0)
                         current_util = features[eid, 1].item()
                         new_util = current_util + bw_req / c
                         features[eid, 1] = min(new_util, 1.0)
-                    except ValueError:
-                        pass
 
             # Compute max link utilization along selected path
             max_util = 0.0
             for i in range(len(selected) - 1):
                 u, v = selected[i], selected[i + 1]
                 for eid_dir in [(u, v), (v, u)]:
-                    try:
-                        eid = edges.index(eid_dir)
+                    eid = edge_to_idx.get(eid_dir)
+                    if eid is not None:
                         max_util = max(max_util, features[eid, 1].item())
-                    except ValueError:
-                        pass
 
             results.append({
                 "flow_id": flow["flow_id"],

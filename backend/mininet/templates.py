@@ -27,13 +27,13 @@ def parse_iperf_bandwidth(output):
     # iperf3: "receiver" line ends with "... Mbits/sec"
     # iperf2: last line with "Mbits/sec" or "MBytes"
     for line in reversed(output.splitlines()):
-        m = re.search(r'([0-9.]+)\s*(M|G)bits/sec', line)
+        m = re.search(r'([0-9.]+)\\s*(M|G)bits/sec', line)
         if m:
             val = float(m.group(1))
             if m.group(2) == 'G':
                 val *= 1000
             return val
-        m = re.search(r'([0-9.]+)\s*(M|G)Bytes', line)
+        m = re.search(r'([0-9.]+)\\s*(M|G)Bytes', line)
         if m:
             val = float(m.group(1)) * 8
             if m.group(2) == 'G':
@@ -45,60 +45,87 @@ def parse_ping_rtt(output):
     """Extract average RTT (ms) from ping output."""
     # e.g. "rtt min/avg/max/mdev = 0.123/0.456/0.789/0.123 ms"
     for line in output.splitlines():
-        m = re.search(r'rtt min/avg/max/mdev =\s+[\d.]+/([\d.]+)/', line)
+        m = re.search(r'rtt min/avg/max/mdev =\\s+[\\d.]+/([\\d.]+)/', line)
         if m:
             return float(m.group(1))
     return None
 
-def run_iperf_flows(net, flows):
-    """Run iperf flows and collect measured throughput."""
-    results = []
-    for flow in flows:
+def run_iperf_flows(net, flows, direct_edges):
+    """Run iperf flows in small concurrent batches and collect measured throughput.
+
+    iperf v2 (the version available in the Mininet image) does not reliably
+    start servers in background mode.  We use a serial per-flow approach:
+    start server -> sleep briefly -> run client -> kill server -> next flow.
+    This is slower but produces reliable measurements.
+    """
+    if not flows:
+        return []
+
+    BASE_PORT = 5201
+    results = [None] * len(flows)
+
+    for i, flow in enumerate(flows):
+        flow_id = flow["flow_id"]
         src_name = flow["src"]
         dst_name = flow["dst"]
         bw = flow["bw_req"]
-        duration = flow.get("duration", 5)
-        flow_id = flow["flow_id"]
+        duration = min(flow.get("duration", 3), 3)
+
+        if direct_edges and (src_name, dst_name) not in direct_edges and (dst_name, src_name) not in direct_edges:
+            results[i] = {"flow_id": flow_id, "src": src_name, "dst": dst_name,
+                          "bw_req": bw, "measured_bw": None}
+            continue
 
         src_host = net.get(src_name)
         dst_host = net.get(dst_name)
         if not src_host or not dst_host:
-            results.append({"flow_id": flow_id, "src": src_name, "dst": dst_name,
-                           "bw_req": bw, "measured_bw": 0, "error": "host not found"})
+            results[i] = {"flow_id": flow_id, "src": src_name, "dst": dst_name,
+                          "bw_req": bw, "measured_bw": None}
             continue
 
-        # Start iperf server on dst
-        dst_host.cmd("pkill iperf 2>/dev/null; iperf -s -p 5001 &")
-        time.sleep(0.3)
+        port = BASE_PORT + i
+        # Start server on destination, wait until port is listening
+        dst_host.cmd(f"pkill -f 'iperf.*-p {port}' 2>/dev/null; true")
+        dst_host.cmd(f"iperf -s -p {port} >/dev/null 2>&1 &")
+        # Wait for server to be ready (retry up to 1s)
+        src_host.cmd(f"for i in 1 2 3 4 5; do nc -z -w1 {dst_host.IP()} {port} && break; sleep 0.2; done; true")
 
-        # Run iperf client
-        out = src_host.cmd(
-            f"iperf -c {dst_host.IP()} -p 5001 -b {bw}M -t {duration} 2>&1"
-        )
-        measured = parse_iperf_bandwidth(out)
+        # Run client on source (iperf v2: use -f M for Mbps output)
+        output = src_host.cmd(f"timeout {duration + 3} iperf -c {dst_host.IP()} -p {port} -b {bw}M -t {duration} -f M 2>&1")
+        # Kill server for this port
+        dst_host.cmd(f"pkill -f 'iperf.*-p {port}' 2>/dev/null; true")
 
-        # Kill server
-        dst_host.cmd("pkill iperf 2>/dev/null")
-
-        results.append({
+        measured = parse_iperf_bandwidth(output)
+        results[i] = {
             "flow_id": flow_id, "src": src_name, "dst": dst_name,
-            "bw_req": bw, "measured_bw": round(measured, 2) if measured else 0,
-        })
+            "bw_req": bw,
+            "measured_bw": round(measured, 2) if measured else None,
+        }
 
     return results
 
 def measure_link_rtt(net, edges):
-    """Ping between every adjacent host pair to measure per-link RTT."""
-    link_rtts = {}
+    """Ping between every adjacent host pair to measure per-link RTT (parallel)."""
+    if not edges:
+        return {}
+    # Launch all pings concurrently
+    ping_pids = {}
     for edge in edges:
         s, d = edge["src"], edge["dst"]
         src_host = net.get(s)
         dst_host = net.get(d)
         if not src_host or not dst_host:
             continue
-        out = src_host.cmd(f"ping -c 3 -q {dst_host.IP()} 2>&1")
-        rtt = parse_ping_rtt(out)
-        link_rtts[f"{s}-{d}"] = round(rtt, 2) if rtt else None
+        out_file = f"/tmp/ping_{s}_{d}.txt"
+        src_host.cmd(f"ping -c 3 -q {dst_host.IP()} > {out_file} 2>&1 & echo $!")
+        ping_pids[f"{s}-{d}"] = (src_host, out_file)
+    time.sleep(3)
+    # Collect results
+    link_rtts = {}
+    for key, (src_host, out_file) in ping_pids.items():
+        output = src_host.cmd(f"cat {out_file} 2>/dev/null; rm -f {out_file}")
+        rtt = parse_ping_rtt(output)
+        link_rtts[key] = round(rtt, 2) if rtt else None
     return link_rtts
 
 if __name__ == "__main__":
@@ -115,15 +142,19 @@ if __name__ == "__main__":
     flow_results = []
     link_rtts = {}
 
+    edges_json = os.environ.get("EDGES_JSON", "")
+    edges = []
+    if edges_json:
+        edges = json.loads(edges_json)
+    direct_edges = {(edge["src"], edge["dst"]) for edge in edges}
+
     if flows_file and os.path.exists(flows_file):
         with open(flows_file) as f:
             flows = json.load(f)
-        flow_results = run_iperf_flows(net, flows)
+        flow_results = run_iperf_flows(net, flows, direct_edges)
 
     # Measure per-link RTT
-    edges_json = os.environ.get("EDGES_JSON", "")
-    if edges_json:
-        edges = json.loads(edges_json)
+    if edges:
         link_rtts = measure_link_rtt(net, edges)
 
     # Output structured result as a single JSON line with a unique marker

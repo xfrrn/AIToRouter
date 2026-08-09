@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -26,18 +27,28 @@ from traffic.generator import generate_flows
 from model.inference import InferenceEngine
 
 # ── Logging ───────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
+# Explicit handler — logging.basicConfig is unreliable with uvicorn reload
+_log_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(_log_fmt)
+
 log = logging.getLogger("ai-router")
+log.setLevel(logging.INFO)
+log.handlers.clear()
+log.addHandler(_log_handler)
+log.propagate = False  # don't bubble to root (uvicorn interferes with root handlers)
+
+# Quiet down noisy libs
+logging.getLogger("docker").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # Global state
 mn_manager = None  # MininetManager — initialized only if Docker is available
 inference_engine: InferenceEngine | None = None
 docker_available = False
 jobs: dict[str, DeploymentResult] = {}
+MAX_MININET_NODES = 8
 
 
 def _build_result(
@@ -54,7 +65,9 @@ def _build_result(
     measured_map: dict[int, float] = {}
     if mininet_data:
         for mfr in mininet_data.get("flow_results", []):
-            measured_map[mfr["flow_id"]] = mfr.get("measured_bw", 0)
+            measured = float(mfr.get("measured_bw") or 0)
+            if measured > 0:
+                measured_map[mfr["flow_id"]] = measured
 
     result_flows = []
     for fr in flow_results:
@@ -70,6 +83,7 @@ def _build_result(
                 hops=fr["hops"],
                 max_link_utilization=fr["max_link_utilization"],
                 ospf_path=fr.get("ospf_path"),
+                ospf_max_link_utilization=fr.get("ospf_max_link_utilization"),
                 measured_bw=measured_bw,
             )
         )
@@ -85,7 +99,7 @@ def _build_result(
                     src=mfr.get("src", ""),
                     dst=mfr.get("dst", ""),
                     bw_req=mfr.get("bw_req", 0),
-                    measured_bw=mfr.get("measured_bw", 0),
+                    measured_bw=mfr.get("measured_bw"),
                 )
             )
 
@@ -169,10 +183,22 @@ def _run_ospf_baseline(G, flows: list[dict]) -> tuple[list[dict], dict]:
             "selected_path": path,
             "hops": max(len(path) - 1, 0),
             "ospf_path": path,
+            "ospf_max_link_utilization": round(min(max_util, 1.0), 4),
             "max_link_utilization": round(min(max_util, 1.0), 4),
         })
 
     return results, edge_utils
+
+
+def _attach_ospf_metrics(G, flows: list[dict], flow_results: list[dict]) -> None:
+    """Attach true OSPF path utilization to model results for fair charting."""
+    ospf_results, _ = _run_ospf_baseline(G, flows)
+    ospf_by_id = {item["flow_id"]: item for item in ospf_results}
+    for result in flow_results:
+        ospf = ospf_by_id.get(result["flow_id"])
+        if ospf:
+            result["ospf_path"] = ospf["selected_path"]
+            result["ospf_max_link_utilization"] = ospf["max_link_utilization"]
 
 
 @asynccontextmanager
@@ -226,7 +252,7 @@ async def health():
 
 
 @app.post("/api/infer")
-async def infer(topology: TopologyJSON) -> DeploymentResult:
+async def infer(topology: TopologyJSON, seed: int | None = None) -> DeploymentResult:
     """Infer optimal routes from topology — no Docker required."""
     job_id = uuid.uuid4().hex[:12]
 
@@ -237,7 +263,8 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
     try:
         G, id_to_idx = build_nx_graph(topology)
         N = G.number_of_nodes()
-        flows = generate_flows(N, seed=42)
+        link_bandwidths = [data.get("bandwidth", 100.0) for _, _, data in G.edges(data=True)]
+        flows = generate_flows(N, seed=seed, link_bandwidths=link_bandwidths)
         log.info("[/api/infer] topology: %d nodes, %d edges | generated %d flows",
                  N, G.number_of_edges(), len(flows))
 
@@ -245,6 +272,7 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
         try:
             log.info("[/api/infer] attempting network-rl inference...")
             flow_results, edge_utils = inference_engine.infer(G, flows)
+            _attach_ospf_metrics(G, flows, flow_results)
             log.info("[/api/infer] >>> using network-rl MODEL <<<")
         except FileNotFoundError:
             log.info("[/api/infer] no checkpoint found, using OSPF baseline")
@@ -268,7 +296,11 @@ async def infer(topology: TopologyJSON) -> DeploymentResult:
 
 
 @app.post("/api/deploy")
-async def deploy(topology: TopologyJSON) -> DeploymentResult:
+async def deploy(
+    topology: TopologyJSON,
+    seed: int | None = None,
+    use_mininet: bool = False,
+) -> DeploymentResult:
     """Deploy topology to Mininet, run traffic, infer optimal routes.
     Falls back to inference-only if Docker or Mininet is unavailable.
     """
@@ -280,7 +312,8 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
     # Convert topology and generate flows (common path)
     G, id_to_idx = build_nx_graph(topology)
     N = G.number_of_nodes()
-    flows = generate_flows(N, seed=42)
+    link_bandwidths = [data.get("bandwidth", 100.0) for _, _, data in G.edges(data=True)]
+    flows = generate_flows(N, seed=seed, link_bandwidths=link_bandwidths)
     log.info("[/api/deploy] topology: %d nodes, %d edges | %d flows",
              N, G.number_of_edges(), len(flows))
 
@@ -290,7 +323,11 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
     container_id = None
     tmpdir = None
 
-    if docker_available:
+    if use_mininet and N > MAX_MININET_NODES:
+        log.info("[/api/deploy] Mininet skipped: topology has %d nodes (limit=%d)", N, MAX_MININET_NODES)
+        use_mininet = False
+
+    if docker_available and use_mininet:
         global mn_manager
         from mininet.manager import MininetManager
         try:
@@ -309,7 +346,12 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
                 })
 
             log.info("[/api/deploy] deploying to Mininet + running iperf...")
-            container_id, _, tmpdir, mininet_data = mn_manager.deploy(topology, mininet_flows)
+
+            # Run blocking Docker operations in a thread to avoid freezing the event loop
+            def _run_mininet():
+                return mn_manager.deploy(topology, mininet_flows)
+
+            container_id, _, tmpdir, mininet_data = await asyncio.to_thread(_run_mininet)
 
             if mininet_data is not None:
                 used_mininet = True
@@ -349,6 +391,8 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
         except Exception as e:
             log.warning("[/api/deploy] Mininet failed (%s), falling back to direct inference", e)
             used_mininet = False
+    elif docker_available:
+        log.info("[/api/deploy] Mininet skipped by request; running direct inference")
 
     # ── Run inference ──
     try:
@@ -358,6 +402,7 @@ async def deploy(topology: TopologyJSON) -> DeploymentResult:
             log.info("[/api/deploy] running direct inference (no Mininet)...")
 
         flow_results, edge_utils = inference_engine.infer(G, flows)
+        _attach_ospf_metrics(G, flows, flow_results)
         log.info("[/api/deploy] >>> used: %s + network-rl MODEL <<<",
                  "Mininet DOCKER" if used_mininet else "DIRECT inference")
     except (FileNotFoundError, ImportError):
@@ -437,6 +482,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         G, _ = build_nx_graph(topo)
         try:
             flow_results, edge_utils = inference_engine.infer(G, traffic)
+            _attach_ospf_metrics(G, traffic, flow_results)
             log.info("[/api/chat] >>> using model inference <<<")
         except (FileNotFoundError, ImportError):
             flow_results, edge_utils = _run_ospf_baseline(G, traffic)
